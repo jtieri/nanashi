@@ -23,6 +23,8 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, style: &StyleProvider) {
     if help_shown {
         constraints.push(Constraint::Length(10));
     }
+    // The status bar always claims the bottom row.
+    constraints.push(Constraint::Length(1));
 
     let helpbar_chunk = Layout::default()
         .constraints(constraints)
@@ -31,6 +33,8 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, style: &StyleProvider) {
     if help_shown {
         status::render_help(frame, app.help_bar(), helpbar_chunk[1]);
     }
+
+    status::render_status(frame, app, helpbar_chunk[helpbar_chunk.len() - 1]);
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)

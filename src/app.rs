@@ -8,6 +8,8 @@ use crate::style::SelectedField;
 use crate::ui::component::Pane;
 use crate::ui::{BoardsPane, RepliesPane, ThreadsPane};
 
+const SPINNER_FRAMES: [char; 4] = ['|', '/', '-', '\\'];
+
 pub(crate) struct App {
     pub(crate) boards: BoardsPane,
     pub(crate) threads: ThreadsPane,
@@ -17,6 +19,8 @@ pub(crate) struct App {
     shown_state: ShownState,
     help_bar: HelpBar,
     status: Option<String>,
+    pending: usize,
+    spinner: usize,
     provider: &'static dyn ContentUrlProvider,
     // Whether the next threads load should select the first row. Entering a
     // board or reloading selects it; paging leaves the selection cleared.
@@ -133,6 +137,8 @@ impl App {
                 text,
             },
             status: None,
+            pending: 0,
+            spinner: 0,
             provider,
             select_threads_on_load: false,
         }
@@ -142,6 +148,21 @@ impl App {
     ///
     /// Pure: it never touches the network, clipboard, terminal, or runtime.
     pub(crate) fn update(&mut self, action: Action) -> Vec<Effect> {
+        let effects = self.step(action);
+        // A fetch just left the pure layer; count it as in-flight so the spinner
+        // runs until its result action arrives.
+        for effect in &effects {
+            if matches!(
+                effect,
+                Effect::FetchThreads { .. } | Effect::FetchThread { .. }
+            ) {
+                self.pending += 1;
+            }
+        }
+        effects
+    }
+
+    fn step(&mut self, action: Action) -> Vec<Effect> {
         match action {
             Action::Quit => vec![Effect::Quit],
             Action::Move(delta) => {
@@ -267,8 +288,15 @@ impl App {
                 Some(url) => vec![Effect::CopyToClipboard(url)],
                 None => vec![],
             },
-            Action::Tick => vec![],
+            Action::Tick => {
+                if self.pending > 0 {
+                    self.spinner = (self.spinner + 1) % SPINNER_FRAMES.len();
+                }
+                vec![]
+            }
             Action::ThreadsLoaded(threads) => {
+                self.pending = self.pending.saturating_sub(1);
+                self.status = None;
                 self.threads = ThreadsPane::new(threads);
                 if self.select_threads_on_load {
                     self.threads.move_selection(1);
@@ -276,11 +304,14 @@ impl App {
                 vec![]
             }
             Action::ThreadLoaded(posts) => {
+                self.pending = self.pending.saturating_sub(1);
+                self.status = None;
                 self.thread = RepliesPane::new(posts);
                 self.thread.move_selection(1);
                 vec![]
             }
             Action::LoadFailed(message) => {
+                self.pending = self.pending.saturating_sub(1);
                 self.status = Some(message);
                 vec![]
             }
@@ -374,6 +405,18 @@ impl App {
 
     pub(crate) fn help_bar(&self) -> &HelpBar {
         &self.help_bar
+    }
+
+    pub(crate) fn pending(&self) -> usize {
+        self.pending
+    }
+
+    pub(crate) fn spinner_frame(&self) -> char {
+        SPINNER_FRAMES[self.spinner % SPINNER_FRAMES.len()]
+    }
+
+    pub(crate) fn status(&self) -> Option<&str> {
+        self.status.as_deref()
     }
 
     /// Thread/post URL for the currently focused pane.
@@ -628,5 +671,50 @@ mod tests {
         app.update(Action::NextPage);
         app.update(Action::ThreadsLoaded(sample_threads()));
         assert_eq!(app.threads.state.selected(), None);
+    }
+
+    #[test]
+    fn fetch_action_increments_pending() {
+        let mut app = sample_app();
+        assert_eq!(app.pending, 0);
+
+        app.update(Action::Enter);
+        assert_eq!(app.pending, 1);
+    }
+
+    #[test]
+    fn threads_loaded_decrements_pending_and_clears_status() {
+        let mut app = sample_app();
+        app.status = Some("boom".to_string());
+        app.update(Action::Enter);
+        assert_eq!(app.pending, 1);
+
+        app.update(Action::ThreadsLoaded(sample_threads()));
+        assert_eq!(app.pending, 0);
+        assert!(app.status.is_none());
+    }
+
+    #[test]
+    fn load_failed_decrements_pending_and_sets_status() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        assert_eq!(app.pending, 1);
+
+        app.update(Action::LoadFailed("boom".to_string()));
+        assert_eq!(app.pending, 0);
+        assert_eq!(app.status.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn tick_advances_spinner_only_while_pending() {
+        let mut app = sample_app();
+
+        // Nothing in flight, so the spinner holds still.
+        app.update(Action::Tick);
+        assert_eq!(app.spinner, 0);
+
+        app.update(Action::Enter);
+        app.update(Action::Tick);
+        assert_eq!(app.spinner, 1);
     }
 }
