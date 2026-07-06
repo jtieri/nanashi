@@ -1,2 +1,10 @@
 /target
 /.idea
+
+# editor / OS cruft
+*.swp
+.DS_Store
+/.vscode
+
+# internal working notes, not part of the project
+/tasks
