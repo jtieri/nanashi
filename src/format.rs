@@ -17,11 +17,16 @@ pub(crate) fn format_html(str: &str) -> String {
     htmlescape::decode_html(str).unwrap()
 }
 
-pub(crate) fn format_post_short(post: &ThreadPost, no: usize, len: usize, area: Rect) -> ListItem {
+pub(crate) fn format_post_short(
+    post: &ThreadPost,
+    no: usize,
+    len: usize,
+    area: Rect,
+) -> ListItem<'_> {
     format_post(post, format!("{}/{}", no, len), area, true)
 }
 
-pub(crate) fn format_post_full(post: &ThreadPost, no: usize, area: Rect) -> ListItem {
+pub(crate) fn format_post_full(post: &ThreadPost, no: usize, area: Rect) -> ListItem<'_> {
     format_post(post, format!("#{}", no), area, false)
 }
 
@@ -31,7 +36,7 @@ const CUT_MSG_LEN: usize = CUT_MSG.len();
 const LIMIT_SHORT: usize = 10;
 const LIMIT_LONG: usize = 60;
 
-fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListItem {
+fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListItem<'_> {
     let mut lines = vec![Spans::from("")];
     let mut header: Vec<Span> = vec![];
 
@@ -103,7 +108,7 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
     ListItem::new(Text::from(lines)).style(Style::default())
 }
 
-fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans> {
+fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans<'_>> {
     let string = htmlescape::decode_html(string).unwrap();
     let split = string.split("<br>");
     let lines: Vec<&str> = split.collect();
