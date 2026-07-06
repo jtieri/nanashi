@@ -1,55 +1,79 @@
-# tui-chan
-An Imageboard Terminal User Interface.
-Currently supports only 4chan.
+# nanashi
 
-![demo](docs/demo.gif)
+A terminal client for reading 4chan. Boards on the left, threads in the middle,
+replies on the right, all driven from the keyboard.
 
-## Installation
-Download the [latest release][latest-releases]. The binary executable is `tui-chan`. Put it in your PATH so that you can execute it from everywhere.
+The name is 名無し, "nameless", which is what anonymous posters were called on the
+old Japanese textboards. moot translated it as "Anonymous" when he started 4chan,
+so it seemed like a good fit for a client that isn't meant to stay tied to any
+one site.
 
-Then run it from the command line.
+nanashi is a fork of [tui-chan](https://github.com/tuqqu/tui-chan) that I'm
+rebuilding from the ground up. It's early and rough, and plenty is going to move
+around while the rewrite lands, so take anything here as a work in progress. The
+[roadmap](docs/ROADMAP.md) spells out where it's headed.
+
+## Where it's going
+
+The short version:
+
+- vim-style navigation you can remap to taste
+- images and media drawn inline in the terminal (kitty graphics, with fallbacks
+  for terminals that can't manage it)
+- the rest of what you'd do reading the site in a browser: catalog view, working
+  quote links, spoilers, archives, search, watching a thread for new replies
+- saving media, and eventually posting
+- other imageboards down the line, not only 4chan
+
+## Building
+
+You'll need [Rust](https://www.rust-lang.org/tools/install).
+
 ```shell
-tui-chan
+git clone https://github.com/jtieri/nanashi.git
+cd nanashi
+cargo install --path .
 ```
 
-You may specify an imageboard name as an argument, the default one is `4chan`.
-
-## Building from source
-If your architecture is not supported by the pre-built binaries you can build the application from the source code yourself.
-Make sure you have [Rust][rust-installation-url] installed.
+That puts a `nanashi` binary in `~/.cargo/bin`. Run it with:
 
 ```shell
-git clone https://github.com/tuqqu/tui-chan.git
-cd tui-chan
-cargo install --path . # copies binary to /.cargo/bin/
-
-# to uninstall run
-cargo uninstall
+nanashi
 ```
+
+To get rid of it later, `cargo uninstall nanashi`.
 
 ## Controls
 
-Controls can be configured in `~/.config/tui-chan/keybinds.conf`
+These are the defaults inherited from tui-chan, and they'll change once the vim
+keybindings land. They live in `~/.config/tui-chan/keybinds.conf` and can be
+remapped.
 
-### Default controls
+Press `h` for the help bar. `d` opens the highlighted board or thread, and `a`
+steps back a pane.
 
-Press `h` to show / hide help bar to look up controls.
-Use `d` to open board or thread and `a` to return to the previous panel.
+| Action                                        | Keys                      |
+|-----------------------------------------------|---------------------------|
+| Move around                                   | `w`, `a`, `s`, `d`        |
+| Move quickly                                  | control + `w`/`a`/`s`/`d` |
+| Toggle the help bar                           | `h`                       |
+| Next / previous page                          | `p` / control + `p`       |
+| Reload the page                               | `r`                       |
+| Fullscreen the selected panel                 | `z`                       |
+| Copy the selected thread or post url          | `c`                       |
+| Copy the selected post's media url            | control + `c`             |
+| Open the selected thread or post in a browser | `o`                       |
+| Open the selected post's media in a browser   | control + `o`             |
+| Quit                                          | `q`                       |
 
-| Description                                          | Keys                          |
-|------------------------------------------------------|-------------------------------|
-| Move around                                          | `w`,`a`,`s`,`d`               |
-| Move quickly                                         | control + `w`,`a`,`s`,`d`     |
-| Toggle help bar                                      | `h`                           |
-| Next page                                            | `p`                           |
-| Previous page                                        | control + `p`                 |
-| Reload page                                          | `r`                           |
-| Toggle fullscreen for the selected panel             | `z`                           |
-| Copy the direct url to the selected thread or post   | `c`                           |
-| Copy the selected post media (image/webm) url        | control + `c`                 |
-| Open the selected thread or post in browser          | `o`                           |
-| Open the selected post media (image/webm) in browser | control + `o`                 |
-| Quit                                                 | `q`                           |
+## Credits
 
-[latest-releases]: https://github.com/tuqqu/tui-chan/releases
-[rust-installation-url]: https://www.rust-lang.org/tools/install
+nanashi started out as [tui-chan](https://github.com/tuqqu/tui-chan) by tuqqu.
+See [NOTICE](NOTICE) for the attribution.
+
+It isn't affiliated with 4chan. It just talks to the public API, so use it within
+the site's rules.
+
+## License
+
+MIT, same as the original. See [LICENSE](LICENSE).

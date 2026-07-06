@@ -1,0 +1,11 @@
+nanashi
+
+nanashi started as a fork of tui-chan by Arthur Kurbidaev (tuqqu),
+https://github.com/tuqqu/tui-chan, which is MIT licensed (Copyright (c) 2021
+Arthur Kurbidaev). The three-pane layout and the groundwork that left room for
+more than one imageboard both came from that project. Thanks to tuqqu for the
+starting point.
+
+nanashi isn't affiliated with 4chan, or with any other site it can talk to. It's
+an independent client that uses public APIs. However you use it, stick to the
+rules of whatever site you point it at.
