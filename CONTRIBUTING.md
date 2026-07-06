@@ -17,16 +17,16 @@ docs: explain the config file
 refactor(app): pull pane state out of App
 ```
 
-The types we use:
+Common types we use:
 
-- `feat` for a new feature
-- `fix` for a bug fix
-- `refactor` when behavior stays the same
-- `docs` for documentation
-- `test` for tests
-- `ci` for CI and workflow changes
-- `build` for dependencies and build tooling
-- `chore` for anything that doesn't fit the rest
+- `feat` - a new user facing capability/feature
+- `fix` - a bug fix
+- `refactor` - a change that doesn't add new features or fix bugs
+- `docs` - documentation changes
+- `test` - adding or fixing tests
+- `ci` - CI and workflow changes
+- `build` - build system, dependencies, tooling
+- `chore` - anything that doesn't fit the above
 
 The changelog is built from these messages, so a clear subject line earns its
 keep.

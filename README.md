@@ -1,27 +1,21 @@
 # nanashi
 
-A terminal client for reading 4chan. Boards on the left, threads in the middle,
-replies on the right, all driven from the keyboard.
+nanashi is a terminal client for browsing 4chan. The name 名無し, "nameless",
+is what anonymous posters were called on Japanese textboards.
 
-The name is 名無し, "nameless", which is what anonymous posters were called on the
-old Japanese textboards. moot translated it as "Anonymous" when he started 4chan,
-so it seemed like a good fit for a client that isn't meant to stay tied to any
-one site.
-
-nanashi is a fork of [tui-chan](https://github.com/tuqqu/tui-chan) that I'm
-rebuilding from the ground up. It's early and rough, and plenty is going to move
-around while the rewrite lands, so take anything here as a work in progress. The
-[roadmap](docs/ROADMAP.md) spells out where it's headed.
+nanashi is a fork of [tui-chan](https://github.com/tuqqu/tui-chan) that I'm rebuilding from the ground up.
+It's early and rough, and plenty is going to move around while the rewrite lands,
+so take anything here as a work in progress. The [roadmap](docs/ROADMAP.md) spells out where it's headed.
 
 ## Where it's going
 
 The short version:
 
-- vim-style navigation you can remap to taste
+- vim-style navigation with remappable keybindings
 - images and media drawn inline in the terminal (kitty graphics, with fallbacks
   for terminals that can't manage it)
-- the rest of what you'd do reading the site in a browser: catalog view, working
-  quote links, spoilers, archives, search, watching a thread for new replies
+- feature parity with the 4chan website: catalog view, working quote links,
+  spoilers, archives, search, watching a thread for new replies, etc.
 - saving media, and eventually posting
 - other imageboards down the line, not only 4chan
 
