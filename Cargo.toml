@@ -23,9 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 ratatui = "0.30"
 chrono = "0.4"
 htmlescape="0.3"
-regex="1.4"
-voca_rs="1.13"
-clipboard = "0.5"
+arboard = "3"
 open = "1"
 
 [profile.dev]

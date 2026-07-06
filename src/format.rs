@@ -5,7 +5,6 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::ListItem;
-use voca_rs::strip;
 
 use crate::model::ThreadPost;
 
@@ -15,6 +14,21 @@ pub(crate) fn format_default(str: &str) -> String {
 
 pub(crate) fn format_html(str: &str) -> String {
     htmlescape::decode_html(str).unwrap()
+}
+
+/// Remove HTML tags, keeping the text between them.
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 pub(crate) fn format_post_short(
@@ -117,7 +131,7 @@ fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<
     let mut i = 0;
 
     'line_loop: for line in lines {
-        let line = strip::strip_tags(line);
+        let line = strip_tags(line);
         let line_type = LineType::from_line(&line);
 
         let mut iter = line.chars();
@@ -234,6 +248,14 @@ mod tests {
     #[test]
     fn test_format_default() {
         assert_eq!(format_default("string"), " string");
+    }
+
+    #[test]
+    fn test_strip_tags() {
+        assert_eq!(strip_tags("<b>bold</b> text"), "bold text");
+        assert_eq!(strip_tags("no tags"), "no tags");
+        assert_eq!(strip_tags("<a href=\"x\">link</a>"), "link");
+        assert_eq!(strip_tags(""), "");
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use std::{env, io, process, str};
 
 use client::ChanClient;
-use clipboard::{ClipboardContext, ClipboardProvider};
 use futures::StreamExt;
 use open::that as open_in_browser;
 use ratatui::backend::CrosstermBackend;
@@ -103,7 +102,7 @@ async fn run(
     client: ChanClient,
 ) -> Result<(), io::Error> {
     let style_prov = StyleProvider::new();
-    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+    let mut ctx = arboard::Clipboard::new().unwrap();
 
     let (tx, mut rx) = unbounded_channel::<Action>();
     let mut reader = EventStream::new();
@@ -144,7 +143,7 @@ fn run_effect(
     effect: Effect,
     client: &ChanClient,
     tx: &UnboundedSender<Action>,
-    ctx: &mut ClipboardContext,
+    ctx: &mut arboard::Clipboard,
     running: &mut bool,
 ) {
     match effect {
@@ -174,7 +173,7 @@ fn run_effect(
             open_in_browser(url).expect("Browser error.");
         }
         Effect::CopyToClipboard(text) => {
-            ctx.set_contents(text).expect("Clipboard error.");
+            ctx.set_text(text).expect("Clipboard error.");
         }
         Effect::Quit => *running = false,
     }
