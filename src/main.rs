@@ -1,18 +1,22 @@
-use std::collections::VecDeque;
 use std::{env, io, process, str};
 
 use client::ChanClient;
 use clipboard::{ClipboardContext, ClipboardProvider};
+use futures::StreamExt;
 use open::that as open_in_browser;
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyEvent};
+use ratatui::crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, EventStream, KeyEvent,
+    KeyEventKind,
+};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::Terminal;
 use reqwest::Client;
-use tokio::runtime::Runtime;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::time::{interval, Duration};
 
 use crate::action::Action;
 use crate::app::App;
@@ -20,7 +24,7 @@ use crate::client::api::{
     from_name as channel_provider_from_name, ChannelProvider, ContentUrlProvider,
 };
 use crate::effect::Effect;
-use crate::event::{Event, Events};
+use crate::event::normalize;
 use crate::keybinds::{matches, read_or_create_keybinds_file, Keybinds};
 use crate::model::Board;
 use crate::style::StyleProvider;
@@ -36,7 +40,8 @@ mod model;
 mod style;
 mod ui;
 
-fn main() -> Result<(), io::Error> {
+#[tokio::main]
+async fn main() -> Result<(), io::Error> {
     // Get keybinds from config file
     let keybinds = read_or_create_keybinds_file().expect("Failed to read keybinds file");
     let keybinds = Keybinds::parse_from_file(&keybinds).expect("Failed to parse keybinds file");
@@ -55,8 +60,6 @@ fn main() -> Result<(), io::Error> {
         default_hook(info);
     }));
 
-    let runtime = Runtime::new()?;
-
     let args: Vec<String> = env::args().collect();
     let chan: &str = if args.len() == 1 { "default" } else { &args[1] };
 
@@ -69,67 +72,17 @@ fn main() -> Result<(), io::Error> {
     };
 
     let client = ChanClient::new(Client::new(), api.as_api());
-    let events = Events::new();
     let api: &dyn ContentUrlProvider = api.as_content();
 
-    let mut boards: Vec<Board> = vec![];
-    runtime.block_on(async {
-        let result = client.get_boards().await;
-
-        match result {
-            Ok(data) => boards = data,
-            Err(_) => panic!("Could not fetch boards"),
-        };
-    });
+    let boards: Vec<Board> = match client.get_boards().await {
+        Ok(data) => data,
+        Err(_) => panic!("Could not fetch boards"),
+    };
 
     let mut app = App::new(boards, &keybinds, api);
     app.set_shown_board_list(true);
-    let style_prov = StyleProvider::new();
-    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
 
-    let mut running = true;
-    let mut actions: VecDeque<Action> = VecDeque::new();
-
-    while running {
-        terminal.draw(|f| ui::draw(f, &mut app, &style_prov))?;
-
-        match events.next().unwrap() {
-            Event::Input(input) => {
-                if let Some(action) = action_for(&input, &keybinds) {
-                    actions.push_back(action);
-                }
-            }
-            Event::Tick => {}
-        }
-
-        while let Some(action) = actions.pop_front() {
-            for effect in app.update(action) {
-                match effect {
-                    Effect::FetchThreads { board, page } => {
-                        let result = runtime.block_on(client.get_threads(&board, page));
-                        actions.push_back(match result {
-                            Ok(threads) => Action::ThreadsLoaded(threads),
-                            Err(err) => Action::LoadFailed(format!("{:#?}", err)),
-                        });
-                    }
-                    Effect::FetchThread { board, no } => {
-                        let result = runtime.block_on(client.get_thread(&board, no));
-                        actions.push_back(match result {
-                            Ok(posts) => Action::ThreadLoaded(posts),
-                            Err(err) => Action::LoadFailed(format!("{:#?}", err)),
-                        });
-                    }
-                    Effect::OpenBrowser(url) => {
-                        open_in_browser(url).expect("Browser error.");
-                    }
-                    Effect::CopyToClipboard(text) => {
-                        ctx.set_contents(text).expect("Clipboard error.");
-                    }
-                    Effect::Quit => running = false,
-                }
-            }
-        }
-    }
+    let result = run(&mut terminal, &mut app, &keybinds, client).await;
 
     disable_raw_mode()?;
     execute!(
@@ -139,7 +92,92 @@ fn main() -> Result<(), io::Error> {
     )?;
     terminal.show_cursor()?;
 
+    result
+}
+
+/// Drive the event loop until a quit action arrives.
+async fn run(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    keybinds: &Keybinds,
+    client: ChanClient,
+) -> Result<(), io::Error> {
+    let style_prov = StyleProvider::new();
+    let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
+
+    let (tx, mut rx) = unbounded_channel::<Action>();
+    let mut reader = EventStream::new();
+    let mut ticker = interval(Duration::from_millis(250));
+
+    let mut running = true;
+    while running {
+        terminal.draw(|f| ui::draw(f, app, &style_prov))?;
+
+        let action = tokio::select! {
+            maybe_event = reader.next() => match maybe_event {
+                Some(Ok(CrosstermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
+                    action_for(&normalize(key), keybinds)
+                }
+                Some(Ok(_)) | Some(Err(_)) => None,
+                None => {
+                    running = false;
+                    None
+                }
+            },
+            _ = ticker.tick() => Some(Action::Tick),
+            maybe_action = rx.recv() => maybe_action,
+        };
+
+        if let Some(action) = action {
+            for effect in app.update(action) {
+                run_effect(effect, &client, &tx, &mut ctx, &mut running);
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Execute one effect. Fetches spawn onto the runtime and report back through
+/// `tx`; the rest run inline.
+fn run_effect(
+    effect: Effect,
+    client: &ChanClient,
+    tx: &UnboundedSender<Action>,
+    ctx: &mut ClipboardContext,
+    running: &mut bool,
+) {
+    match effect {
+        Effect::FetchThreads { board, page } => {
+            let client = client.clone();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let action = match client.get_threads(&board, page).await {
+                    Ok(threads) => Action::ThreadsLoaded(threads),
+                    Err(err) => Action::LoadFailed(format!("{:#?}", err)),
+                };
+                let _ = tx.send(action);
+            });
+        }
+        Effect::FetchThread { board, no } => {
+            let client = client.clone();
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let action = match client.get_thread(&board, no).await {
+                    Ok(posts) => Action::ThreadLoaded(posts),
+                    Err(err) => Action::LoadFailed(format!("{:#?}", err)),
+                };
+                let _ = tx.send(action);
+            });
+        }
+        Effect::OpenBrowser(url) => {
+            open_in_browser(url).expect("Browser error.");
+        }
+        Effect::CopyToClipboard(text) => {
+            ctx.set_contents(text).expect("Clipboard error.");
+        }
+        Effect::Quit => *running = false,
+    }
 }
 
 /// Translate a key event into an action, if it matches a configured keybind.

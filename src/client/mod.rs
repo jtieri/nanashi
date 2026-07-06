@@ -9,6 +9,7 @@ use crate::model::{Board, Thread, ThreadPost};
 pub(crate) mod api;
 mod response;
 
+#[derive(Clone)]
 pub(crate) struct ChanClient {
     client: Client,
     api: &'static dyn ApiUrlProvider,

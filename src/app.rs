@@ -267,6 +267,7 @@ impl App {
                 Some(url) => vec![Effect::CopyToClipboard(url)],
                 None => vec![],
             },
+            Action::Tick => vec![],
             Action::ThreadsLoaded(threads) => {
                 self.threads = ThreadsPane::new(threads);
                 if self.select_threads_on_load {

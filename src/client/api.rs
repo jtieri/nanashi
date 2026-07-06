@@ -1,4 +1,6 @@
-pub trait ApiUrlProvider {
+// Send + Sync so a `&'static dyn ApiUrlProvider` can ride along into the tasks
+// spawned for each fetch.
+pub trait ApiUrlProvider: Send + Sync {
     fn boards(&self) -> String;
 
     fn threads(&self, board: &str, page: u8) -> String;

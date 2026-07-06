@@ -19,6 +19,7 @@ pub(crate) enum Action {
     OpenMedia,
     CopyThread,
     CopyMedia,
+    Tick,
     // results fed back after an effect runs
     ThreadsLoaded(Vec<Thread>),
     ThreadLoaded(Vec<ThreadPost>),
