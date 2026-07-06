@@ -1,6 +1,6 @@
-use termion::event::Key;
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-/// Parse (deserialize) keybind string as `termion::event::Key`.
+/// Parse (deserialize) keybind string as `KeyEvent`.
 ///
 /// Include modifer key, by separating with a space ('Ctrl a').
 /// Valid modifier keys include 'Ctrl' and 'Alt'.
@@ -8,7 +8,7 @@ use termion::event::Key;
 /// To use 'Shift' with characters, use capitalized form ('Ctrl A', not 'Ctrl Shift a')
 ///
 /// Space is used as separator, because plus ('+') can be used as key name.
-pub fn parse_keybind(keybind: &str) -> Result<Key, ParseErrorKind> {
+pub fn parse_keybind(keybind: &str) -> Result<KeyEvent, ParseErrorKind> {
     let mut parts = keybind.split(' ').rev();
 
     // Last part is key name (must exist)
@@ -34,17 +34,17 @@ pub fn parse_keybind(keybind: &str) -> Result<Key, ParseErrorKind> {
 
             // No modifier
             let Some(modifier) = modifier else {
-                return Ok(Key::Char(ch));
+                return Ok(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
             };
 
             // Use valid modifier
-            let key = match modifier.to_lowercase().as_str() {
-                "ctrl" => Key::Ctrl(ch),
-                "alt" => Key::Alt(ch),
+            let modifiers = match modifier.to_lowercase().as_str() {
+                "ctrl" => KeyModifiers::CONTROL,
+                "alt" => KeyModifiers::ALT,
                 _ => return Err(ParseErrorKind::UnknownModifier),
             };
 
-            return Ok(key);
+            return Ok(KeyEvent::new(KeyCode::Char(ch), modifiers));
         }
     }
 
@@ -54,49 +54,56 @@ pub fn parse_keybind(keybind: &str) -> Result<Key, ParseErrorKind> {
     }
 
     // Use valid special key name
-    let key = match keyname.to_lowercase().as_str() {
-        "backspace" => Key::Backspace,
-        "left" => Key::Left,
-        "right" => Key::Right,
-        "up" => Key::Up,
-        "down" => Key::Down,
-        "home" => Key::Home,
-        "end" => Key::End,
-        "pageup" => Key::PageUp,
-        "pagedown" => Key::PageDown,
-        "backtab" => Key::BackTab,
-        "delete" => Key::Delete,
-        "insert" => Key::Insert,
-        "esc" => Key::Esc,
+    let code = match keyname.to_lowercase().as_str() {
+        "backspace" => KeyCode::Backspace,
+        "left" => KeyCode::Left,
+        "right" => KeyCode::Right,
+        "up" => KeyCode::Up,
+        "down" => KeyCode::Down,
+        "home" => KeyCode::Home,
+        "end" => KeyCode::End,
+        "pageup" => KeyCode::PageUp,
+        "pagedown" => KeyCode::PageDown,
+        "backtab" => KeyCode::BackTab,
+        "delete" => KeyCode::Delete,
+        "insert" => KeyCode::Insert,
+        "esc" => KeyCode::Esc,
 
         _ => return Err(ParseErrorKind::InvalidSpecialKeyName),
     };
 
-    Ok(key)
+    Ok(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
 /// Stringify (serialize) key, using same format to parse keybind
-pub fn display_key(key: &Key) -> String {
-    match key {
-        Key::Char(ch) => ch.to_string(),
-        Key::Ctrl(ch) => format!("Ctrl {ch}"),
-        Key::Alt(ch) => format!("Alt {ch}"),
-        // Mirrors the match statement in `parse_keybind`
-        Key::Backspace => String::from("Backspace"),
-        Key::Left => String::from("Left"),
-        Key::Right => String::from("Right"),
-        Key::Up => String::from("Up"),
-        Key::Down => String::from("Down"),
-        Key::Home => String::from("Home"),
-        Key::End => String::from("End"),
-        Key::PageUp => String::from("PageUp"),
-        Key::PageDown => String::from("PageDown"),
-        Key::BackTab => String::from("BackTab"),
-        Key::Delete => String::from("Delete"),
-        Key::Insert => String::from("Insert"),
-        Key::Esc => String::from("Esc"),
+pub fn display_key(key: &KeyEvent) -> String {
+    if let KeyCode::Char(ch) = key.code {
+        return if key.modifiers.contains(KeyModifiers::CONTROL) {
+            format!("Ctrl {ch}")
+        } else if key.modifiers.contains(KeyModifiers::ALT) {
+            format!("Alt {ch}")
+        } else {
+            ch.to_string()
+        };
+    }
 
-        _ => unreachable!("Trying to serialize `Key` which should never exist"),
+    // Mirrors the match statement in `parse_keybind`
+    match key.code {
+        KeyCode::Backspace => String::from("Backspace"),
+        KeyCode::Left => String::from("Left"),
+        KeyCode::Right => String::from("Right"),
+        KeyCode::Up => String::from("Up"),
+        KeyCode::Down => String::from("Down"),
+        KeyCode::Home => String::from("Home"),
+        KeyCode::End => String::from("End"),
+        KeyCode::PageUp => String::from("PageUp"),
+        KeyCode::PageDown => String::from("PageDown"),
+        KeyCode::BackTab => String::from("BackTab"),
+        KeyCode::Delete => String::from("Delete"),
+        KeyCode::Insert => String::from("Insert"),
+        KeyCode::Esc => String::from("Esc"),
+
+        _ => unreachable!("Trying to serialize `KeyEvent` which should never exist"),
     }
 }
 
@@ -135,20 +142,33 @@ mod tests {
         use parse_keybind as parse;
         use ParseErrorKind::*;
 
+        fn plain(ch: char) -> KeyEvent {
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+        }
+        fn ctrl(ch: char) -> KeyEvent {
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+        }
+        fn alt(ch: char) -> KeyEvent {
+            KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)
+        }
+        fn special(code: KeyCode) -> KeyEvent {
+            KeyEvent::new(code, KeyModifiers::NONE)
+        }
+
         // Ok
 
-        assert_eq!(parse("a"), Ok(Key::Char('a')));
-        assert_eq!(parse("A"), Ok(Key::Char('A')));
-        assert_eq!(parse("Ctrl a"), Ok(Key::Ctrl('a')));
-        assert_eq!(parse("Ctrl A"), Ok(Key::Ctrl('A')));
-        assert_eq!(parse("Alt z"), Ok(Key::Alt('z')));
-        assert_eq!(parse("["), Ok(Key::Char('[')));
-        assert_eq!(parse("!"), Ok(Key::Char('!')));
-        assert_eq!(parse("~"), Ok(Key::Char('~')));
-        assert_eq!(parse("Alt ^"), Ok(Key::Alt('^')));
-        assert_eq!(parse("Ctrl 6"), Ok(Key::Ctrl('6')));
-        assert_eq!(parse("Backspace"), Ok(Key::Backspace));
-        assert_eq!(parse("Up"), Ok(Key::Up));
+        assert_eq!(parse("a"), Ok(plain('a')));
+        assert_eq!(parse("A"), Ok(plain('A')));
+        assert_eq!(parse("Ctrl a"), Ok(ctrl('a')));
+        assert_eq!(parse("Ctrl A"), Ok(ctrl('A')));
+        assert_eq!(parse("Alt z"), Ok(alt('z')));
+        assert_eq!(parse("["), Ok(plain('[')));
+        assert_eq!(parse("!"), Ok(plain('!')));
+        assert_eq!(parse("~"), Ok(plain('~')));
+        assert_eq!(parse("Alt ^"), Ok(alt('^')));
+        assert_eq!(parse("Ctrl 6"), Ok(ctrl('6')));
+        assert_eq!(parse("Backspace"), Ok(special(KeyCode::Backspace)));
+        assert_eq!(parse("Up"), Ok(special(KeyCode::Up)));
 
         // Err
 

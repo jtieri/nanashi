@@ -1,10 +1,10 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
-use tui::layout::Rect;
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans, Text};
-use tui::widgets::ListItem;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::ListItem;
 use voca_rs::strip;
 
 use crate::model::ThreadPost;
@@ -37,7 +37,7 @@ const LIMIT_SHORT: usize = 10;
 const LIMIT_LONG: usize = 60;
 
 fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListItem<'_> {
-    let mut lines = vec![Spans::from("")];
+    let mut lines = vec![Line::from("")];
     let mut header: Vec<Span> = vec![];
 
     if !post.sub().is_empty() {
@@ -71,10 +71,10 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
         header.push(Span::styled(format_default("🔓"), Style::default()));
     }
 
-    lines.push(Spans::from(header));
+    lines.push(Line::from(header));
 
     if post.filename().is_some() && post.ext().is_some() {
-        lines.push(Spans::from(Span::styled(
+        lines.push(Line::from(Span::styled(
             format_default(&format!(
                 "{}{}",
                 post.filename().as_ref().unwrap(),
@@ -96,7 +96,7 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
     }
 
     if short {
-        lines.push(Spans::from(Span::styled(
+        lines.push(Line::from(Span::styled(
             format_default(&format!("{} Replies", post.replies())),
             Style::default()
                 .fg(Color::Magenta)
@@ -104,11 +104,11 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
         )));
     }
 
-    lines.push(Spans::from(""));
+    lines.push(Line::from(""));
     ListItem::new(Text::from(lines)).style(Style::default())
 }
 
-fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Spans<'_>> {
+fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<Line<'_>> {
     let string = htmlescape::decode_html(string).unwrap();
     let split = string.split("<br>");
     let lines: Vec<&str> = split.collect();
@@ -125,7 +125,7 @@ fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<
         let mut pos = 0;
 
         if strlen == 0 {
-            spans.push(Spans::from(""));
+            spans.push(Line::from(""));
 
             i += 1;
 
@@ -141,14 +141,14 @@ fn format_post_contents(string: &str, sub_len: usize, line_limit: usize) -> Vec<
                 .fold(0, |acc, ch| acc + ch.len_utf8());
 
             if i >= line_limit {
-                spans.push(Spans::from(vec![
+                spans.push(Line::from(vec![
                     Span::styled(format_default(cut_line(&line, pos, len)), line_type.style()),
                     Span::styled(CUT_MSG, Style::default().fg(Color::Magenta)),
                 ]));
                 break 'line_loop;
             }
 
-            spans.push(Spans::from(Span::styled(
+            spans.push(Line::from(Span::styled(
                 format_default(&line[pos..pos + len]),
                 line_type.style(),
             )));
@@ -245,19 +245,19 @@ mod tests {
 
         // untruncated post formatting
         assert_eq!(format_post_contents(POST, 100, 5), vec![
-            Spans::from(" Natus est Schubert Himmelpfortgrund in vico Alsergrund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
-            Spans::from(" iscus Theodorus Schubert, filius pagani Moraviani, magister scholae paroechialis; mater, Elisabeth ("),
-            Spans::from(" Vietz), filia artificis claustrarii Silesici fuit, quae ante nuptias ut ancilla in familia Vindobone"),
-            Spans::from(" nsi laboraverat."),
+            Line::from(" Natus est Schubert Himmelpfortgrund in vico Alsergrund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
+            Line::from(" iscus Theodorus Schubert, filius pagani Moraviani, magister scholae paroechialis; mater, Elisabeth ("),
+            Line::from(" Vietz), filia artificis claustrarii Silesici fuit, quae ante nuptias ut ancilla in familia Vindobone"),
+            Line::from(" nsi laboraverat."),
         ]);
 
         // truncated post formatting
         assert_eq!(
             format_post_contents(POST, 50, 2),
             vec![
-                Spans::from(" Natus est Schubert Himmelpfortgrund in vico Alserg"),
-                Spans::from(" rund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
-                Spans::from(vec![
+                Line::from(" Natus est Schubert Himmelpfortgrund in vico Alserg"),
+                Line::from(" rund Vindobonae die 31 Ianuarii 1797. Pater, Franc"),
+                Line::from(vec![
                     Span::from(" iscus Theodorus Schubert, filius pagani Morav"),
                     Span::styled("[...]", Style::default().fg(Color::Magenta))
                 ]),

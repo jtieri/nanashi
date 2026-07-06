@@ -1,4 +1,4 @@
-use tui::widgets::ListState;
+use ratatui::widgets::ListState;
 
 use crate::client::api::ContentUrlProvider;
 use crate::format::format_html;

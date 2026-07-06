@@ -1,5 +1,5 @@
-use tui::style::Color;
-use tui::widgets::BorderType;
+use ratatui::style::Color;
+use ratatui::widgets::BorderType;
 
 pub(crate) struct StyleProvider {
     highlight_color: Color,

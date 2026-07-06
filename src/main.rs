@@ -5,17 +5,19 @@ use std::{env, io, process, str};
 use client::ChanClient;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use open::that as open_in_browser;
+use ratatui::backend::CrosstermBackend;
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::Terminal;
 use reqwest::Client;
-use termion::input::MouseTerminal;
-use termion::raw::IntoRawMode;
-use termion::screen::AlternateScreen;
 use tokio::runtime::Runtime;
-use tui::backend::TermionBackend;
-use tui::layout::{Constraint, Direction, Layout};
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
-use tui::Terminal;
 
 use crate::app::App;
 use crate::client::api::{
@@ -23,7 +25,7 @@ use crate::client::api::{
 };
 use crate::event::{Event, Events};
 use crate::format::{format_default, format_post_full, format_post_short};
-use crate::keybinds::{read_or_create_keybinds_file, Keybinds};
+use crate::keybinds::{matches, read_or_create_keybinds_file, Keybinds};
 use crate::model::{Board, Thread, ThreadList, ThreadPost};
 use crate::style::{SelectedField, StyleProvider};
 
@@ -40,11 +42,20 @@ fn main() -> Result<(), io::Error> {
     let keybinds = read_or_create_keybinds_file().expect("Failed to read keybinds file");
     let keybinds = Keybinds::parse_from_file(&keybinds).expect("Failed to parse keybinds file");
 
-    let stdout = io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
-    let backend = TermionBackend::new(stdout);
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    // Restore the terminal on panic so a crash never leaves it wrecked.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        default_hook(info);
+    }));
+
     let runtime = Runtime::new()?;
 
     let args: Vec<String> = env::args().collect();
@@ -89,9 +100,7 @@ fn main() -> Result<(), io::Error> {
                 constraints.push(Constraint::Length(10));
             }
 
-            let helpbar_chunk = Layout::default()
-                .constraints::<&[Constraint]>(constraints.as_ref())
-                .split(f.size());
+            let helpbar_chunk = Layout::default().constraints(constraints).split(f.area());
 
             if app.help_bar().shown() {
                 let block = Block::default().borders(Borders::NONE).title(Span::styled(
@@ -123,7 +132,7 @@ fn main() -> Result<(), io::Error> {
                 .items
                 .iter()
                 .map(|board| {
-                    let lines = vec![Spans::from(vec![
+                    let lines = vec![Line::from(vec![
                         Span::styled(
                             format_default(&format!("/{}/", board.board())),
                             Style::default().fg(Color::Magenta),
@@ -208,10 +217,10 @@ fn main() -> Result<(), io::Error> {
 
         match events.next().unwrap() {
             Event::Input(input) => match input {
-                _ if input == keybinds.quit => {
+                _ if matches(&input, &keybinds.quit) => {
                     break;
                 }
-                _ if input == keybinds.left => {
+                _ if matches(&input, &keybinds.left) => {
                     match selected_field {
                         SelectedField::BoardList => {}
                         SelectedField::ThreadList => {
@@ -227,23 +236,23 @@ fn main() -> Result<(), io::Error> {
                         }
                     };
                 }
-                _ if input == keybinds.down => {
+                _ if matches(&input, &keybinds.down) => {
                     const STEPS: isize = 1;
                     app.advance(&selected_field, STEPS);
                 }
-                _ if input == keybinds.up => {
+                _ if matches(&input, &keybinds.up) => {
                     const STEPS: isize = -1;
                     app.advance(&selected_field, STEPS);
                 }
-                _ if input == keybinds.quick_down => {
+                _ if matches(&input, &keybinds.quick_down) => {
                     const STEPS: isize = 5;
                     app.advance(&selected_field, STEPS);
                 }
-                _ if input == keybinds.quick_up => {
+                _ if matches(&input, &keybinds.quick_up) => {
                     const STEPS: isize = -5;
                     app.advance(&selected_field, STEPS);
                 }
-                _ if input == keybinds.fullscreen => {
+                _ if matches(&input, &keybinds.fullscreen) => {
                     match selected_field {
                         SelectedField::BoardList => {
                             if app.shown_thread_list() {
@@ -266,10 +275,10 @@ fn main() -> Result<(), io::Error> {
                         }
                     };
                 }
-                _ if input == keybinds.help => {
+                _ if matches(&input, &keybinds.help) => {
                     app.help_bar_mut().toggle_shown();
                 }
-                _ if input == keybinds.open_thread => {
+                _ if matches(&input, &keybinds.open_thread) => {
                     let url = match selected_field {
                         SelectedField::BoardList => app.url_boards(api),
                         SelectedField::ThreadList => app.url_threads(api),
@@ -278,7 +287,7 @@ fn main() -> Result<(), io::Error> {
 
                     open_in_browser(url).expect("Browser error.");
                 }
-                _ if input == keybinds.open_media => {
+                _ if matches(&input, &keybinds.open_media) => {
                     let url = match selected_field {
                         SelectedField::BoardList => None,
                         SelectedField::ThreadList => app.media_url_threads(api),
@@ -289,7 +298,7 @@ fn main() -> Result<(), io::Error> {
                         open_in_browser(url).expect("Browser error.");
                     }
                 }
-                _ if input == keybinds.copy_thread => {
+                _ if matches(&input, &keybinds.copy_thread) => {
                     let url = match selected_field {
                         SelectedField::BoardList => app.url_boards(api),
                         SelectedField::ThreadList => app.url_threads(api),
@@ -298,7 +307,7 @@ fn main() -> Result<(), io::Error> {
 
                     ctx.set_contents(url).expect("Clipboard error.");
                 }
-                _ if input == keybinds.copy_media => {
+                _ if matches(&input, &keybinds.copy_media) => {
                     let url = match selected_field {
                         SelectedField::BoardList => None,
                         SelectedField::ThreadList => app.media_url_threads(api),
@@ -309,7 +318,7 @@ fn main() -> Result<(), io::Error> {
                         ctx.set_contents(url).expect("Clipboard error.");
                     }
                 }
-                _ if input == keybinds.page_next => {
+                _ if matches(&input, &keybinds.page_next) => {
                     match selected_field {
                         SelectedField::ThreadList => {
                             let mut threads: Vec<Thread> = vec![];
@@ -331,7 +340,7 @@ fn main() -> Result<(), io::Error> {
                         _ => {}
                     };
                 }
-                _ if input == keybinds.page_previous => {
+                _ if matches(&input, &keybinds.page_previous) => {
                     match selected_field {
                         SelectedField::ThreadList => {
                             let mut threads: Vec<Thread> = vec![];
@@ -353,7 +362,7 @@ fn main() -> Result<(), io::Error> {
                         _ => {}
                     };
                 }
-                _ if input == keybinds.reload => {
+                _ if matches(&input, &keybinds.reload) => {
                     match selected_field {
                         SelectedField::ThreadList => {
                             let mut threads: Vec<Thread> = vec![];
@@ -394,7 +403,7 @@ fn main() -> Result<(), io::Error> {
                         _ => {}
                     };
                 }
-                _ if input == keybinds.right => {
+                _ if matches(&input, &keybinds.right) => {
                     match selected_field {
                         SelectedField::BoardList => {
                             selected_field = SelectedField::ThreadList;
@@ -451,6 +460,14 @@ fn main() -> Result<(), io::Error> {
             }
         }
     }
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
 
     Ok(())
 }

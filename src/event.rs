@@ -1,13 +1,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::Duration;
-use std::{io, thread};
 
-use termion::event::Key;
-use termion::input::TermRead;
+use ratatui::crossterm::event::{
+    read, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+};
 
 pub(crate) struct Events {
-    rx: mpsc::Receiver<Event<Key>>,
+    rx: mpsc::Receiver<Event<KeyEvent>>,
     _input_handle: thread::JoinHandle<()>,
     _ignore_exit_key: Arc<AtomicBool>,
     _tick_handle: thread::JoinHandle<()>,
@@ -29,14 +30,30 @@ impl Events {
         let input_handle = {
             let tx = tx.clone();
             let ignore_exit_key = ignore_exit_key.clone();
-            thread::spawn(move || {
-                let stdin = io::stdin();
-                for key in stdin.keys().flatten() {
-                    if let Err(err) = tx.send(Event::Input(key)) {
-                        eprintln!("{}", err);
-                        return;
+            thread::spawn(move || loop {
+                match read() {
+                    Ok(CrosstermEvent::Key(key)) => {
+                        // Only forward key presses, ignore release and repeat.
+                        if key.kind != KeyEventKind::Press {
+                            continue;
+                        }
+
+                        let key = normalize(key);
+
+                        if let Err(err) = tx.send(Event::Input(key)) {
+                            eprintln!("{}", err);
+                            return;
+                        }
+                        if !ignore_exit_key.load(Ordering::Relaxed)
+                            && key.code == config.exit_key.code
+                            && key.modifiers == config.exit_key.modifiers
+                        {
+                            return;
+                        }
                     }
-                    if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
+                    Ok(_) => {}
+                    Err(err) => {
+                        eprintln!("{}", err);
                         return;
                     }
                 }
@@ -60,7 +77,7 @@ impl Events {
         }
     }
 
-    pub(crate) fn next(&self) -> Result<Event<Key>, mpsc::RecvError> {
+    pub(crate) fn next(&self) -> Result<Event<KeyEvent>, mpsc::RecvError> {
         self.rx.recv()
     }
 
@@ -73,16 +90,29 @@ impl Events {
     }
 }
 
+/// Normalize a key event so keybind matching is reliable.
+///
+/// For character keys the case already encodes shift, so drop the SHIFT
+/// modifier. Rebuilding the event also resets `kind` and `state` to defaults.
+fn normalize(key: KeyEvent) -> KeyEvent {
+    let mut modifiers = key.modifiers;
+    if let KeyCode::Char(_) = key.code {
+        modifiers.remove(KeyModifiers::SHIFT);
+    }
+
+    KeyEvent::new(key.code, modifiers)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Config {
-    exit_key: Key,
+    exit_key: KeyEvent,
     tick_rate: Duration,
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            exit_key: Key::Char('q'),
+            exit_key: KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
             tick_rate: Duration::from_millis(250),
         }
     }

@@ -5,9 +5,31 @@ pub use self::file::read_or_create_keybinds_file;
 pub use self::key::{display_key, ParseErrorKind};
 
 use std::collections::HashMap;
-use termion::event::Key;
+
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use self::key::parse_keybind;
+
+/// Report whether an input key event matches a configured keybind.
+///
+/// Ignores the `kind` and `state` fields that `KeyEvent` equality would compare.
+pub fn matches(input: &KeyEvent, bind: &KeyEvent) -> bool {
+    input.code == bind.code && input.modifiers == bind.modifiers
+}
+
+fn plain(ch: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+}
+
+fn ctrl(ch: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+}
+
+// No default keybind uses Alt, but the macro can still select it.
+#[allow(dead_code)]
+fn alt(ch: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(ch), KeyModifiers::ALT)
+}
 
 // Creates `pub struct Keybinds`
 macro_rules! define_keybinds {
@@ -20,7 +42,7 @@ macro_rules! define_keybinds {
         #[derive(Debug)]
         pub struct Keybinds { $(
             #[doc = $desc]
-            pub $name: Key,
+            pub $name: KeyEvent,
         )* }
 
         impl Keybinds {
@@ -60,9 +82,10 @@ macro_rules! define_keybinds {
         }
     };
 
-    // Use `Char` if no modifier given
-    (@modifier $mod:ident) => { Key::$mod };
-    (@modifier           ) => { Key::Char };
+    // Select the helper that builds the right modifier; plain char if none given
+    (@modifier Ctrl) => { ctrl };
+    (@modifier Alt ) => { alt };
+    (@modifier     ) => { plain };
 }
 
 define_keybinds! {
@@ -126,7 +149,7 @@ pub enum KeybindsError {
 }
 
 /// Map keybind name to key
-type KeyMap<'a> = HashMap<&'a str, Key>;
+type KeyMap<'a> = HashMap<&'a str, KeyEvent>;
 
 /// Parse keybinds file, as hashmap
 fn parse_keymap_file(file: &str) -> Result<KeyMap<'_>, KeybindsError> {
