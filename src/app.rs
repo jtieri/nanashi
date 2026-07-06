@@ -476,3 +476,156 @@ impl HelpBar {
         &self.text
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::api::from_name;
+
+    const BOARDS_JSON: &str = r#"[
+        {"board":"g","title":"Technology","meta_description":"tech board","per_page":15,"pages":10,"bump_limit":300},
+        {"board":"v","title":"Video Games","meta_description":"games board","per_page":15,"pages":10,"bump_limit":300}
+    ]"#;
+
+    const THREADS_JSON: &str = r#"[
+        {"posts":[{"no":100,"replies":3}]},
+        {"posts":[{"no":200,"replies":7}]}
+    ]"#;
+
+    fn sample_app() -> App {
+        let keybinds = Keybinds::parse_from_file("").unwrap();
+        let provider = from_name("4chan").unwrap().as_content();
+        let boards: Vec<Board> = serde_json::from_str(BOARDS_JSON).unwrap();
+        let mut app = App::new(boards, &keybinds, provider);
+        app.set_shown_board_list(true);
+        app
+    }
+
+    fn sample_threads() -> Vec<Thread> {
+        serde_json::from_str(THREADS_JSON).unwrap()
+    }
+
+    #[test]
+    fn entering_board_focuses_threads_and_fetches() {
+        let mut app = sample_app();
+        let effects = app.update(Action::Enter);
+
+        assert_eq!(app.focus, SelectedField::ThreadList);
+        assert!(app.shown_state.thread_list);
+        match effects.as_slice() {
+            [Effect::FetchThreads { board, page }] => {
+                assert_eq!(board, "g");
+                assert_eq!(*page, 1);
+            }
+            _ => panic!("expected a single FetchThreads effect"),
+        }
+    }
+
+    #[test]
+    fn entering_thread_fetches_thread() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        app.update(Action::ThreadsLoaded(sample_threads()));
+
+        let effects = app.update(Action::Enter);
+
+        assert_eq!(app.focus, SelectedField::Thread);
+        assert!(app.shown_state.thread);
+        assert!(!app.shown_state.board_list);
+        match effects.as_slice() {
+            [Effect::FetchThread { board, no }] => {
+                assert_eq!(board, "g");
+                assert_eq!(*no, 100);
+            }
+            _ => panic!("expected a single FetchThread effect"),
+        }
+    }
+
+    #[test]
+    fn back_returns_focus() {
+        let mut app = sample_app();
+        app.focus = SelectedField::Thread;
+
+        app.update(Action::Back);
+        assert_eq!(app.focus, SelectedField::ThreadList);
+
+        app.update(Action::Back);
+        assert_eq!(app.focus, SelectedField::BoardList);
+
+        // Already at the leftmost pane, nothing changes.
+        app.update(Action::Back);
+        assert_eq!(app.focus, SelectedField::BoardList);
+    }
+
+    #[test]
+    fn move_wraps_selection() {
+        let mut app = sample_app();
+
+        app.update(Action::Move(1));
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        app.update(Action::Move(1));
+        assert_eq!(app.boards.state.selected(), Some(1));
+
+        // Wrap past the end back to the start.
+        app.update(Action::Move(1));
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        // Wrap before the start to the end.
+        app.update(Action::Move(-1));
+        assert_eq!(app.boards.state.selected(), Some(1));
+    }
+
+    #[test]
+    fn toggle_help_flips_shown() {
+        let mut app = sample_app();
+        assert!(!app.help_bar().shown());
+
+        app.update(Action::ToggleHelp);
+        assert!(app.help_bar().shown());
+
+        app.update(Action::ToggleHelp);
+        assert!(!app.help_bar().shown());
+    }
+
+    #[test]
+    fn reload_in_thread_fetches_thread() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        app.update(Action::ThreadsLoaded(sample_threads()));
+        app.update(Action::Enter);
+        app.update(Action::ThreadLoaded(vec![]));
+
+        let effects = app.update(Action::Reload);
+        match effects.as_slice() {
+            [Effect::FetchThread { board, no }] => {
+                assert_eq!(board, "g");
+                assert_eq!(*no, 100);
+            }
+            _ => panic!("expected a single FetchThread effect"),
+        }
+    }
+
+    #[test]
+    fn threads_loaded_fills_and_selects_first() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        app.update(Action::ThreadsLoaded(sample_threads()));
+
+        assert_eq!(app.threads.items.len(), 2);
+        assert_eq!(app.threads.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn paging_leaves_selection_cleared() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        app.update(Action::ThreadsLoaded(sample_threads()));
+        assert_eq!(app.threads.state.selected(), Some(0));
+
+        // Paging refetches without selecting a row, matching the original.
+        app.update(Action::NextPage);
+        app.update(Action::ThreadsLoaded(sample_threads()));
+        assert_eq!(app.threads.state.selected(), None);
+    }
+}
