@@ -40,7 +40,7 @@ To get rid of it later, `cargo uninstall nanashi`.
 ## Controls
 
 These are the defaults inherited from tui-chan, and they'll change once the vim
-keybindings land. They live in `~/.config/tui-chan/keybinds.conf` and can be
+keybindings land. They live in `~/.config/nanashi/keybinds.conf` and can be
 remapped.
 
 Press `h` for the help bar. `d` opens the highlighted board or thread, and `a`

@@ -65,7 +65,7 @@ macro_rules! define_keybinds {
 
             /// Get contents of keybind file, with default configuration
             pub fn default_file_contents() -> String {
-                let mut contents = String::from("# Keybinds for tui-chan\n# https://github.com/tuqqu/tui-chan\n\n");
+                let mut contents = String::from("# Keybinds for nanashi\n# https://github.com/jtieri/nanashi\n\n");
 
                 $(
                     let key = define_keybinds!(@modifier $($mod)?)($key);

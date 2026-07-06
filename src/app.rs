@@ -114,7 +114,7 @@ impl App {
         let text = format!(
             r##"
                 {table}
-                Controls can be changed in ~/.config/tui-chan/keybinds.conf
+                Controls can be changed in ~/.config/nanashi/keybinds.conf
                 Note: to enter the board/thread use "{right}"
             "##,
             table = format_table(table)
