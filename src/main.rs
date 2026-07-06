@@ -1,41 +1,40 @@
-#![allow(clippy::single_match)]
-
+use std::collections::VecDeque;
 use std::{env, io, process, str};
 
 use client::ChanClient;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use open::that as open_in_browser;
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture, KeyEvent};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Terminal;
 use reqwest::Client;
 use tokio::runtime::Runtime;
 
+use crate::action::Action;
 use crate::app::App;
 use crate::client::api::{
     from_name as channel_provider_from_name, ChannelProvider, ContentUrlProvider,
 };
+use crate::effect::Effect;
 use crate::event::{Event, Events};
-use crate::format::{format_default, format_post_full, format_post_short};
 use crate::keybinds::{matches, read_or_create_keybinds_file, Keybinds};
-use crate::model::{Board, Thread, ThreadList, ThreadPost};
-use crate::style::{SelectedField, StyleProvider};
+use crate::model::Board;
+use crate::style::StyleProvider;
 
+mod action;
 mod app;
 mod client;
+mod effect;
 mod event;
 mod format;
 mod keybinds;
 mod model;
 mod style;
+mod ui;
 
 fn main() -> Result<(), io::Error> {
     // Get keybinds from config file
@@ -83,380 +82,51 @@ fn main() -> Result<(), io::Error> {
         };
     });
 
-    let mut app = App::new(boards, vec![], vec![], &keybinds);
+    let mut app = App::new(boards, &keybinds, api);
     app.set_shown_board_list(true);
-    let mut selected_field: SelectedField = SelectedField::BoardList;
-    let mut thread_list = ThreadList::new();
     let style_prov = StyleProvider::new();
     let mut ctx: ClipboardContext = ClipboardProvider::new().unwrap();
 
-    loop {
-        terminal.draw(|f| {
-            let block_style = style_prov.default_from_selected_field(&selected_field);
-            let scr_share = app.calc_screen_share();
+    let mut running = true;
+    let mut actions: VecDeque<Action> = VecDeque::new();
 
-            let mut constraints = vec![Constraint::Min(0)];
-            if app.help_bar().shown() {
-                constraints.push(Constraint::Length(10));
-            }
-
-            let helpbar_chunk = Layout::default().constraints(constraints).split(f.area());
-
-            if app.help_bar().shown() {
-                let block = Block::default().borders(Borders::NONE).title(Span::styled(
-                    app.help_bar().title(),
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                let paragraph = Paragraph::new(app.help_bar().text().as_str())
-                    .block(block)
-                    .wrap(Wrap { trim: true });
-                f.render_widget(paragraph, helpbar_chunk[1]);
-            }
-
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(
-                    [
-                        Constraint::Percentage(scr_share.board_list()),
-                        Constraint::Percentage(scr_share.thread_list()),
-                        Constraint::Percentage(scr_share.thread()),
-                    ]
-                    .as_ref(),
-                )
-                .split(helpbar_chunk[0]);
-
-            let items: Vec<ListItem> = app
-                .boards
-                .items
-                .iter()
-                .map(|board| {
-                    let lines = vec![Line::from(vec![
-                        Span::styled(
-                            format_default(&format!("/{}/", board.board())),
-                            Style::default().fg(Color::Magenta),
-                        ),
-                        Span::raw(format_default(board.title())),
-                    ])];
-
-                    ListItem::new(lines).style(Style::default())
-                })
-                .collect();
-
-            let items = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(block_style.border_color().board_list()))
-                        .border_type(block_style.border_type().board_list())
-                        .title(format_default("Boards ")),
-                )
-                .highlight_style(
-                    Style::default()
-                        .bg(*style_prov.highlight_color())
-                        .add_modifier(Modifier::BOLD),
-                );
-
-            f.render_stateful_widget(items, chunks[0], &mut app.boards.state);
-
-            let thread_len = app.threads.items.len();
-            let threads: Vec<ListItem> = app
-                .threads
-                .items
-                .iter()
-                .enumerate()
-                .map(|(i, thread)| {
-                    format_post_short(
-                        thread.posts().first().unwrap(),
-                        i + 1,
-                        thread_len,
-                        chunks[1],
-                    )
-                })
-                .collect();
-
-            let threads = List::new(threads)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(block_style.border_color().thread_list()))
-                        .border_type(block_style.border_type().thread_list())
-                        .title(format_default(&format!(
-                            "Threads, page {} {}",
-                            thread_list.cur_page(),
-                            thread_list.description(),
-                        ))),
-                )
-                .highlight_style(Style::default().bg(*style_prov.highlight_color()));
-
-            f.render_stateful_widget(threads, chunks[1], &mut app.threads.state);
-
-            let thread: Vec<ListItem> = app
-                .thread
-                .items
-                .iter()
-                .enumerate()
-                .map(|(i, post)| format_post_full(post, i + 1, chunks[2]))
-                .collect();
-
-            let thread = List::new(thread)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(block_style.border_color().thread()))
-                        .border_type(block_style.border_type().thread())
-                        .title(format_default(&format!(
-                            "Thread {}",
-                            app.selected_thread_description()
-                        ))),
-                )
-                .highlight_style(Style::default().bg(*style_prov.highlight_color()));
-            f.render_stateful_widget(thread, chunks[2], &mut app.thread.state);
-        })?;
+    while running {
+        terminal.draw(|f| ui::draw(f, &mut app, &style_prov))?;
 
         match events.next().unwrap() {
-            Event::Input(input) => match input {
-                _ if matches(&input, &keybinds.quit) => {
-                    break;
+            Event::Input(input) => {
+                if let Some(action) = action_for(&input, &keybinds) {
+                    actions.push_back(action);
                 }
-                _ if matches(&input, &keybinds.left) => {
-                    match selected_field {
-                        SelectedField::BoardList => {}
-                        SelectedField::ThreadList => {
-                            app.set_shown_board_list(true);
-                            app.set_shown_thread(false);
-                            selected_field = SelectedField::BoardList;
-                        }
-                        SelectedField::Thread => {
-                            app.set_shown_board_list(true);
-                            app.set_shown_thread_list(true);
-                            app.set_shown_thread(false);
-                            selected_field = SelectedField::ThreadList;
-                        }
-                    };
-                }
-                _ if matches(&input, &keybinds.down) => {
-                    const STEPS: isize = 1;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if matches(&input, &keybinds.up) => {
-                    const STEPS: isize = -1;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if matches(&input, &keybinds.quick_down) => {
-                    const STEPS: isize = 5;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if matches(&input, &keybinds.quick_up) => {
-                    const STEPS: isize = -5;
-                    app.advance(&selected_field, STEPS);
-                }
-                _ if matches(&input, &keybinds.fullscreen) => {
-                    match selected_field {
-                        SelectedField::BoardList => {
-                            if app.shown_thread_list() {
-                                app.toggle_shown_board_list();
-                                selected_field = SelectedField::ThreadList;
-                            }
-                        }
-                        SelectedField::ThreadList => {
-                            if app.shown_thread() {
-                                app.toggle_shown_thread_list();
-                                selected_field = SelectedField::Thread;
-                            } else {
-                                app.toggle_shown_board_list();
-                                selected_field = SelectedField::ThreadList;
-                            }
-                        }
-                        SelectedField::Thread => {
-                            app.toggle_shown_thread_list();
-                            selected_field = SelectedField::Thread;
-                        }
-                    };
-                }
-                _ if matches(&input, &keybinds.help) => {
-                    app.help_bar_mut().toggle_shown();
-                }
-                _ if matches(&input, &keybinds.open_thread) => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => app.url_boards(api),
-                        SelectedField::ThreadList => app.url_threads(api),
-                        SelectedField::Thread => app.url_thread(api),
-                    };
+            }
+            Event::Tick => {}
+        }
 
-                    open_in_browser(url).expect("Browser error.");
-                }
-                _ if matches(&input, &keybinds.open_media) => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => None,
-                        SelectedField::ThreadList => app.media_url_threads(api),
-                        SelectedField::Thread => app.media_url_thread(api),
-                    };
-
-                    if let Some(url) = url {
+        while let Some(action) = actions.pop_front() {
+            for effect in app.update(action) {
+                match effect {
+                    Effect::FetchThreads { board, page } => {
+                        let result = runtime.block_on(client.get_threads(&board, page));
+                        actions.push_back(match result {
+                            Ok(threads) => Action::ThreadsLoaded(threads),
+                            Err(err) => Action::LoadFailed(format!("{:#?}", err)),
+                        });
+                    }
+                    Effect::FetchThread { board, no } => {
+                        let result = runtime.block_on(client.get_thread(&board, no));
+                        actions.push_back(match result {
+                            Ok(posts) => Action::ThreadLoaded(posts),
+                            Err(err) => Action::LoadFailed(format!("{:#?}", err)),
+                        });
+                    }
+                    Effect::OpenBrowser(url) => {
                         open_in_browser(url).expect("Browser error.");
                     }
-                }
-                _ if matches(&input, &keybinds.copy_thread) => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => app.url_boards(api),
-                        SelectedField::ThreadList => app.url_threads(api),
-                        SelectedField::Thread => app.url_thread(api),
-                    };
-
-                    ctx.set_contents(url).expect("Clipboard error.");
-                }
-                _ if matches(&input, &keybinds.copy_media) => {
-                    let url = match selected_field {
-                        SelectedField::BoardList => None,
-                        SelectedField::ThreadList => app.media_url_threads(api),
-                        SelectedField::Thread => app.media_url_thread(api),
-                    };
-
-                    if let Some(url) = url {
-                        ctx.set_contents(url).expect("Clipboard error.");
+                    Effect::CopyToClipboard(text) => {
+                        ctx.set_contents(text).expect("Clipboard error.");
                     }
+                    Effect::Quit => running = false,
                 }
-                _ if matches(&input, &keybinds.page_next) => {
-                    match selected_field {
-                        SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.next_page(app.selected_board()),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => threads = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_threads(threads);
-                            });
-                        }
-                        _ => {}
-                    };
-                }
-                _ if matches(&input, &keybinds.page_previous) => {
-                    match selected_field {
-                        SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.prev_page(app.selected_board()),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => threads = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_threads(threads);
-                            });
-                        }
-                        _ => {}
-                    };
-                }
-                _ if matches(&input, &keybinds.reload) => {
-                    match selected_field {
-                        SelectedField::ThreadList => {
-                            let mut threads: Vec<Thread> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.cur_page(),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => threads = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_threads(threads);
-                                app.threads.advance_by(1);
-                            });
-                        }
-                        SelectedField::Thread => {
-                            let mut thread: Vec<ThreadPost> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_thread(
-                                        app.selected_board().board(),
-                                        app.selected_thread().posts().first().unwrap().no() as u64,
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => thread = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_thread(thread);
-                                app.thread.advance_by(1);
-                            });
-                        }
-                        _ => {}
-                    };
-                }
-                _ if matches(&input, &keybinds.right) => {
-                    match selected_field {
-                        SelectedField::BoardList => {
-                            selected_field = SelectedField::ThreadList;
-                            app.set_shown_thread_list(true);
-
-                            thread_list = ThreadList::new();
-                            thread_list.set_description(app.selected_board().meta_description());
-                            let mut threads: Vec<Thread> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_threads(
-                                        app.selected_board().board(),
-                                        thread_list.cur_page(),
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => threads = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_threads(threads);
-                                app.threads.advance_by(1);
-                            });
-                        }
-                        SelectedField::ThreadList => {
-                            selected_field = SelectedField::Thread;
-                            app.set_shown_thread(true);
-                            app.set_shown_board_list(false);
-
-                            let mut thread: Vec<ThreadPost> = vec![];
-                            runtime.block_on(async {
-                                let result = client
-                                    .get_thread(
-                                        app.selected_board().board(),
-                                        app.selected_thread().posts().first().unwrap().no() as u64,
-                                    )
-                                    .await;
-                                match result {
-                                    Ok(data) => thread = data,
-                                    Err(err) => eprintln!("{:#?}", err),
-                                };
-
-                                app.fill_thread(thread);
-                                app.thread.advance_by(1);
-                            });
-                        }
-                        _ => {}
-                    };
-                }
-                _ => {}
-            },
-            Event::Tick => {
-                app.advance_idly();
             }
         }
     }
@@ -470,4 +140,43 @@ fn main() -> Result<(), io::Error> {
     terminal.show_cursor()?;
 
     Ok(())
+}
+
+/// Translate a key event into an action, if it matches a configured keybind.
+fn action_for(input: &KeyEvent, keybinds: &Keybinds) -> Option<Action> {
+    if matches(input, &keybinds.quit) {
+        Some(Action::Quit)
+    } else if matches(input, &keybinds.left) {
+        Some(Action::Back)
+    } else if matches(input, &keybinds.down) {
+        Some(Action::Move(1))
+    } else if matches(input, &keybinds.up) {
+        Some(Action::Move(-1))
+    } else if matches(input, &keybinds.quick_down) {
+        Some(Action::Move(5))
+    } else if matches(input, &keybinds.quick_up) {
+        Some(Action::Move(-5))
+    } else if matches(input, &keybinds.fullscreen) {
+        Some(Action::ToggleFullscreen)
+    } else if matches(input, &keybinds.help) {
+        Some(Action::ToggleHelp)
+    } else if matches(input, &keybinds.open_thread) {
+        Some(Action::OpenThread)
+    } else if matches(input, &keybinds.open_media) {
+        Some(Action::OpenMedia)
+    } else if matches(input, &keybinds.copy_thread) {
+        Some(Action::CopyThread)
+    } else if matches(input, &keybinds.copy_media) {
+        Some(Action::CopyMedia)
+    } else if matches(input, &keybinds.page_next) {
+        Some(Action::NextPage)
+    } else if matches(input, &keybinds.page_previous) {
+        Some(Action::PrevPage)
+    } else if matches(input, &keybinds.reload) {
+        Some(Action::Reload)
+    } else if matches(input, &keybinds.right) {
+        Some(Action::Enter)
+    } else {
+        None
+    }
 }

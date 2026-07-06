@@ -1,17 +1,26 @@
-use ratatui::widgets::ListState;
-
+use crate::action::Action;
 use crate::client::api::ContentUrlProvider;
+use crate::effect::Effect;
 use crate::format::format_html;
 use crate::keybinds::{display_key, Keybinds};
-use crate::model::{Board, Thread, ThreadPost};
+use crate::model::{Board, Thread, ThreadList, ThreadPost};
 use crate::style::SelectedField;
+use crate::ui::component::Pane;
+use crate::ui::{BoardsPane, RepliesPane, ThreadsPane};
 
 pub(crate) struct App {
-    pub(crate) boards: ItemLIst<Board>,
-    pub(crate) threads: ItemLIst<Thread>,
-    pub(crate) thread: ItemLIst<ThreadPost>,
+    pub(crate) boards: BoardsPane,
+    pub(crate) threads: ThreadsPane,
+    pub(crate) thread: RepliesPane,
+    focus: SelectedField,
+    thread_list: ThreadList,
     shown_state: ShownState,
     help_bar: HelpBar,
+    status: Option<String>,
+    provider: &'static dyn ContentUrlProvider,
+    // Whether the next threads load should select the first row. Entering a
+    // board or reloading selects it; paging leaves the selection cleared.
+    select_threads_on_load: bool,
 }
 
 /// Format 2D array as table, with aligned columns
@@ -38,9 +47,8 @@ fn format_table(data: &[&[&str]]) -> String {
 impl App {
     pub(crate) fn new(
         boards: Vec<Board>,
-        threads: Vec<Thread>,
-        thread: Vec<ThreadPost>,
         keybinds: &Keybinds,
+        provider: &'static dyn ContentUrlProvider,
     ) -> Self {
         /// Get keybinds as strings
         macro_rules! get_keys {
@@ -109,9 +117,11 @@ impl App {
         );
 
         Self {
-            boards: ItemLIst::new(boards),
-            threads: ItemLIst::new(threads),
-            thread: ItemLIst::new(thread),
+            boards: BoardsPane::new(boards),
+            threads: ThreadsPane::new(vec![]),
+            thread: RepliesPane::new(vec![]),
+            focus: SelectedField::BoardList,
+            thread_list: ThreadList::new(),
             shown_state: ShownState {
                 board_list: false,
                 thread_list: false,
@@ -122,31 +132,158 @@ impl App {
                 title: format!("Help (\"{help}\" to toggle)"),
                 text,
             },
+            status: None,
+            provider,
+            select_threads_on_load: false,
         }
     }
 
-    pub(crate) fn fill_threads(&mut self, threads: Vec<Thread>) {
-        self.threads = ItemLIst::new(threads);
-    }
-
-    pub(crate) fn fill_thread(&mut self, thread: Vec<ThreadPost>) {
-        self.thread = ItemLIst::new(thread);
-    }
-
-    pub(crate) fn advance_idly(&self) {}
-
-    pub(crate) fn advance(&mut self, selected_field: &SelectedField, steps: isize) {
-        match selected_field {
-            SelectedField::BoardList => {
-                self.boards.advance_by(steps);
+    /// Apply an action to the state and return the effects to run.
+    ///
+    /// Pure: it never touches the network, clipboard, terminal, or runtime.
+    pub(crate) fn update(&mut self, action: Action) -> Vec<Effect> {
+        match action {
+            Action::Quit => vec![Effect::Quit],
+            Action::Move(delta) => {
+                match self.focus {
+                    SelectedField::BoardList => self.boards.move_selection(delta),
+                    SelectedField::ThreadList => self.threads.move_selection(delta),
+                    SelectedField::Thread => self.thread.move_selection(delta),
+                }
+                vec![]
             }
-            SelectedField::ThreadList => {
-                self.threads.advance_by(steps);
+            Action::Back => {
+                match self.focus {
+                    SelectedField::BoardList => {}
+                    SelectedField::ThreadList => {
+                        self.set_shown_board_list(true);
+                        self.set_shown_thread(false);
+                        self.focus = SelectedField::BoardList;
+                    }
+                    SelectedField::Thread => {
+                        self.set_shown_board_list(true);
+                        self.set_shown_thread_list(true);
+                        self.set_shown_thread(false);
+                        self.focus = SelectedField::ThreadList;
+                    }
+                }
+                vec![]
             }
-            SelectedField::Thread => {
-                self.thread.advance_by(steps);
+            Action::Enter => match self.focus {
+                SelectedField::BoardList => {
+                    self.focus = SelectedField::ThreadList;
+                    self.set_shown_thread_list(true);
+
+                    self.thread_list = ThreadList::new();
+                    let idx = self.boards.state.selected().unwrap_or(0);
+                    self.thread_list
+                        .set_description(self.boards.items[idx].meta_description());
+
+                    let page = self.thread_list.cur_page();
+                    let board = self.boards.items[idx].board().to_string();
+                    self.select_threads_on_load = true;
+                    vec![Effect::FetchThreads { board, page }]
+                }
+                SelectedField::ThreadList => {
+                    self.focus = SelectedField::Thread;
+                    self.set_shown_thread(true);
+                    self.set_shown_board_list(false);
+
+                    let board = self.selected_board().board().to_string();
+                    let no = self.selected_thread().posts().first().unwrap().no() as u64;
+                    vec![Effect::FetchThread { board, no }]
+                }
+                SelectedField::Thread => vec![],
+            },
+            Action::NextPage => match self.focus {
+                SelectedField::ThreadList => {
+                    let idx = self.boards.state.selected().unwrap_or(0);
+                    let page = self.thread_list.next_page(&self.boards.items[idx]);
+                    let board = self.boards.items[idx].board().to_string();
+                    self.select_threads_on_load = false;
+                    vec![Effect::FetchThreads { board, page }]
+                }
+                _ => vec![],
+            },
+            Action::PrevPage => match self.focus {
+                SelectedField::ThreadList => {
+                    let idx = self.boards.state.selected().unwrap_or(0);
+                    let page = self.thread_list.prev_page(&self.boards.items[idx]);
+                    let board = self.boards.items[idx].board().to_string();
+                    self.select_threads_on_load = false;
+                    vec![Effect::FetchThreads { board, page }]
+                }
+                _ => vec![],
+            },
+            Action::Reload => match self.focus {
+                SelectedField::ThreadList => {
+                    let page = self.thread_list.cur_page();
+                    let board = self.selected_board().board().to_string();
+                    self.select_threads_on_load = true;
+                    vec![Effect::FetchThreads { board, page }]
+                }
+                SelectedField::Thread => {
+                    let board = self.selected_board().board().to_string();
+                    let no = self.selected_thread().posts().first().unwrap().no() as u64;
+                    vec![Effect::FetchThread { board, no }]
+                }
+                _ => vec![],
+            },
+            Action::ToggleFullscreen => {
+                match self.focus {
+                    SelectedField::BoardList => {
+                        if self.shown_thread_list() {
+                            self.toggle_shown_board_list();
+                            self.focus = SelectedField::ThreadList;
+                        }
+                    }
+                    SelectedField::ThreadList => {
+                        if self.shown_thread() {
+                            self.toggle_shown_thread_list();
+                            self.focus = SelectedField::Thread;
+                        } else {
+                            self.toggle_shown_board_list();
+                            self.focus = SelectedField::ThreadList;
+                        }
+                    }
+                    SelectedField::Thread => {
+                        self.toggle_shown_thread_list();
+                        self.focus = SelectedField::Thread;
+                    }
+                }
+                vec![]
             }
-        };
+            Action::ToggleHelp => {
+                self.help_bar.toggle_shown();
+                vec![]
+            }
+            Action::OpenThread => vec![Effect::OpenBrowser(self.thread_url())],
+            Action::CopyThread => vec![Effect::CopyToClipboard(self.thread_url())],
+            Action::OpenMedia => match self.media_url_for_focus() {
+                Some(url) => vec![Effect::OpenBrowser(url)],
+                None => vec![],
+            },
+            Action::CopyMedia => match self.media_url_for_focus() {
+                Some(url) => vec![Effect::CopyToClipboard(url)],
+                None => vec![],
+            },
+            Action::ThreadsLoaded(threads) => {
+                self.threads = ThreadsPane::new(threads);
+                if self.select_threads_on_load {
+                    self.threads.move_selection(1);
+                }
+                vec![]
+            }
+            Action::ThreadLoaded(posts) => {
+                self.thread = RepliesPane::new(posts);
+                self.thread.move_selection(1);
+                vec![]
+            }
+            Action::LoadFailed(message) => {
+                self.status = Some(message);
+                vec![]
+            }
+        }
     }
 
     pub(crate) fn calc_screen_share(&self) -> ScreenShare {
@@ -165,11 +302,23 @@ impl App {
         }
     }
 
-    pub(crate) fn selected_board(&self) -> &Board {
+    pub(crate) fn focus(&self) -> &SelectedField {
+        &self.focus
+    }
+
+    pub(crate) fn thread_list_page(&self) -> u8 {
+        self.thread_list.cur_page()
+    }
+
+    pub(crate) fn thread_list_description(&self) -> &str {
+        self.thread_list.description()
+    }
+
+    fn selected_board(&self) -> &Board {
         &self.boards.items[self.boards.state.selected().unwrap_or(0)]
     }
 
-    pub(crate) fn selected_thread(&self) -> &Thread {
+    fn selected_thread(&self) -> &Thread {
         &self.threads.items[self.threads.state.selected().unwrap_or(0)]
     }
 
@@ -190,7 +339,7 @@ impl App {
         }
     }
 
-    pub(crate) fn selected_post(&self) -> &ThreadPost {
+    fn selected_post(&self) -> &ThreadPost {
         &self.thread.items[self.thread.state.selected().unwrap()]
     }
 
@@ -198,37 +347,27 @@ impl App {
         self.shown_state.board_list = shown;
     }
 
-    pub(crate) fn set_shown_thread_list(&mut self, shown: bool) {
+    fn set_shown_thread_list(&mut self, shown: bool) {
         self.shown_state.thread_list = shown;
     }
 
-    pub(crate) fn set_shown_thread(&mut self, shown: bool) {
+    fn set_shown_thread(&mut self, shown: bool) {
         self.shown_state.thread = shown;
     }
 
-    pub(crate) fn toggle_shown_board_list(&mut self) {
+    fn toggle_shown_board_list(&mut self) {
         self.shown_state.board_list ^= true;
     }
 
-    pub(crate) fn toggle_shown_thread_list(&mut self) {
+    fn toggle_shown_thread_list(&mut self) {
         self.shown_state.thread_list ^= true;
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn toggle_shown_thread(&mut self) {
-        self.shown_state.thread ^= true;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn shown_board_list(&mut self) -> bool {
-        self.shown_state.board_list
-    }
-
-    pub(crate) fn shown_thread_list(&mut self) -> bool {
+    fn shown_thread_list(&self) -> bool {
         self.shown_state.thread_list
     }
 
-    pub(crate) fn shown_thread(&mut self) -> bool {
+    fn shown_thread(&self) -> bool {
         self.shown_state.thread
     }
 
@@ -236,52 +375,38 @@ impl App {
         &self.help_bar
     }
 
-    pub(crate) fn help_bar_mut(&mut self) -> &mut HelpBar {
-        &mut self.help_bar
+    /// Thread/post URL for the currently focused pane.
+    fn thread_url(&self) -> String {
+        match self.focus {
+            SelectedField::BoardList => self.provider.url_board(self.selected_board().board()),
+            SelectedField::ThreadList => self.provider.url_thread(
+                self.selected_board().board(),
+                self.selected_thread().posts().first().unwrap().no() as u64,
+            ),
+            SelectedField::Thread => self.provider.url_thread_post(
+                self.selected_board().board(),
+                self.selected_thread().posts().first().unwrap().no() as u64,
+                self.selected_post().no() as u64,
+            ),
+        }
     }
 
-    pub(crate) fn url_boards(&self, url_provider: &dyn ContentUrlProvider) -> String {
-        url_provider.url_board(self.selected_board().board())
+    /// Media URL for the currently focused pane, if the selected post has media.
+    fn media_url_for_focus(&self) -> Option<String> {
+        let post = match self.focus {
+            SelectedField::BoardList => return None,
+            SelectedField::ThreadList => self.selected_thread().posts().first().unwrap(),
+            SelectedField::Thread => self.selected_post(),
+        };
+        self.media_url(post)
     }
 
-    pub(crate) fn url_threads(&self, url_provider: &dyn ContentUrlProvider) -> String {
-        url_provider.url_thread(
-            self.selected_board().board(),
-            self.selected_thread().posts().first().unwrap().no() as u64,
-        )
-    }
-
-    pub(crate) fn url_thread(&self, url_provider: &dyn ContentUrlProvider) -> String {
-        url_provider.url_thread_post(
-            self.selected_board().board(),
-            self.selected_thread().posts().first().unwrap().no() as u64,
-            self.selected_post().no() as u64,
-        )
-    }
-
-    pub(crate) fn media_url_threads(
-        &self,
-        url_provider: &dyn ContentUrlProvider,
-    ) -> Option<String> {
-        let post = self.selected_thread().posts().first().unwrap();
-        self.media_url(post, url_provider)
-    }
-
-    pub(crate) fn media_url_thread(&self, url_provider: &dyn ContentUrlProvider) -> Option<String> {
-        let post = self.selected_post();
-        self.media_url(post, url_provider)
-    }
-
-    fn media_url(
-        &self,
-        post: &ThreadPost,
-        url_provider: &dyn ContentUrlProvider,
-    ) -> Option<String> {
+    fn media_url(&self, post: &ThreadPost) -> Option<String> {
         if post.tim().is_none() || post.ext().is_none() {
             return None;
         }
 
-        let url = url_provider.url_file(
+        let url = self.provider.url_file(
             self.selected_board().board(),
             format!(
                 "{}{}",
@@ -328,11 +453,6 @@ struct ShownState {
     thread: bool,
 }
 
-pub(crate) struct ItemLIst<T> {
-    pub(crate) state: ListState,
-    pub(crate) items: Vec<T>,
-}
-
 pub(crate) struct HelpBar {
     shown: bool,
     title: String,
@@ -354,35 +474,5 @@ impl HelpBar {
 
     pub(crate) fn text(&self) -> &String {
         &self.text
-    }
-}
-
-impl<T> ItemLIst<T> {
-    pub(crate) fn new(items: Vec<T>) -> ItemLIst<T> {
-        ItemLIst {
-            state: ListState::default(),
-            items,
-        }
-    }
-
-    pub(crate) fn advance_by(&mut self, steps: isize) {
-        let selected = match self.state.selected() {
-            Some(selected) => {
-                if selected as isize >= self.items.len() as isize - steps {
-                    0_isize
-                } else if selected == 0 && steps < 0 {
-                    self.items.len() as isize - 1
-                } else {
-                    selected as isize + steps
-                }
-            }
-            None => 0,
-        };
-
-        self.state.select(Some(selected as usize));
-    }
-
-    pub(crate) fn _unselect(&mut self) {
-        self.state.select(None);
     }
 }
