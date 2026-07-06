@@ -1,9 +1,15 @@
 [package]
-name = "tui-chan"
-version = "0.5.0"
-authors = ["tuqqu <artkurbidaev@gmail.com>"]
+name = "nanashi"
+version = "0.1.0"
+authors = ["jtieri <37750742+jtieri@users.noreply.github.com>"]
 edition = "2021"
 license = "MIT"
+description = "Browse 4chan from your terminal. A keyboard-driven imageboard client."
+readme = "README.md"
+keywords = ["tui", "4chan", "imageboard", "terminal", "cli"]
+categories = ["command-line-utilities"]
+repository = "https://github.com/jtieri/nanashi"
+homepage = "https://github.com/jtieri/nanashi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
