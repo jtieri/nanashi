@@ -140,3 +140,17 @@ impl ChanClient {
         Ok(archived)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::api::Api4chan;
+
+    #[test]
+    fn clone_shares_rate_limiter() {
+        static API: Api4chan = Api4chan;
+        let client = ChanClient::new(&API);
+        let clone = client.clone();
+        assert!(Arc::ptr_eq(&client.last_request, &clone.last_request));
+    }
+}

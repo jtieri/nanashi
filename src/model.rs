@@ -317,3 +317,89 @@ impl ThreadPost {
         &self.last_replies
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn board_full_schema() {
+        const JSON: &str = r#"{
+            "board":"g","title":"Technology","meta_description":"tech board",
+            "per_page":15,"pages":10,"bump_limit":300,"image_limit":150,
+            "max_filesize":4194304,"max_webm_filesize":6291456,
+            "max_comment_chars":2000,"max_webm_duration":120,
+            "cooldowns":{"threads":600,"replies":60,"images":60},
+            "ws_board":1,"spoilers":1,"custom_spoilers":1,"user_ids":1,
+            "code_tags":1,"math_tags":1,"webm_audio":1,
+            "min_image_width":480,"min_image_height":600
+        }"#;
+
+        let board: Board = serde_json::from_str(JSON).unwrap();
+        assert_eq!(board.board(), "g");
+        assert_eq!(board.title(), "Technology");
+        assert_eq!(board.per_page(), 15);
+        assert_eq!(board.pages(), 10);
+        assert_eq!(board.bump_limit(), 300);
+        assert_eq!(board.max_filesize, 4194304);
+        assert_eq!(board.cooldowns.threads, 600);
+        assert_eq!(board.cooldowns.images, 60);
+        assert_eq!(board.spoilers, Some(1));
+        assert_eq!(board.min_image_width, Some(480));
+        assert!(board.board_flags.is_none());
+    }
+
+    #[test]
+    fn board_only_required_fields() {
+        const JSON: &str = r#"{"board":"v","title":"Video Games","meta_description":"games"}"#;
+
+        let board: Board = serde_json::from_str(JSON).unwrap();
+        assert_eq!(board.board(), "v");
+        assert_eq!(board.per_page(), 0);
+        assert_eq!(board.pages(), 0);
+        assert_eq!(board.cooldowns.replies, 0);
+        assert!(board.spoilers.is_none());
+    }
+
+    #[test]
+    fn thread_post_op_with_file() {
+        const JSON: &str = r#"{
+            "no":123456,"now":"01/01/24(Mon)00:00:00","time":1704067200,
+            "name":"Anonymous","sub":"Welcome","com":"first post",
+            "sticky":1,"closed":0,"replies":42,"images":7,"unique_ips":30,
+            "resto":0,"bumplimit":1,"imagelimit":0,
+            "tim":1704067200000,"ext":".png","filename":"pic",
+            "md5":"aGVsbG8=","fsize":123456,"w":800,"h":600,"tn_w":250,"tn_h":187,
+            "semantic_url":"welcome"
+        }"#;
+
+        let post: ThreadPost = serde_json::from_str(JSON).unwrap();
+        assert_eq!(post.no(), 123456);
+        assert_eq!(post.sub(), "Welcome");
+        assert_eq!(post.sticky(), 1);
+        assert_eq!(post.replies(), 42);
+        assert_eq!(post.resto, 0);
+        assert_eq!(post.tim(), Some(1704067200000));
+        assert_eq!(post.ext().as_deref(), Some(".png"));
+        assert_eq!(post.filename().as_deref(), Some("pic"));
+        assert_eq!(post.md5.as_deref(), Some("aGVsbG8="));
+        assert_eq!(post.w, Some(800));
+        assert_eq!(post.h, Some(600));
+        assert_eq!(post.fsize, Some(123456));
+        assert_eq!(post.images, Some(7));
+        assert_eq!(post.unique_ips, Some(30));
+    }
+
+    #[test]
+    fn thread_post_bare_reply() {
+        const JSON: &str = r#"{"no":123457,"com":"a reply"}"#;
+
+        let post: ThreadPost = serde_json::from_str(JSON).unwrap();
+        assert_eq!(post.no(), 123457);
+        assert_eq!(post.com(), "a reply");
+        assert_eq!(post.replies(), 0);
+        assert!(post.tim().is_none());
+        assert!(post.ext().is_none());
+        assert!(post.md5.is_none());
+    }
+}
