@@ -1,14 +1,81 @@
+use std::collections::HashMap;
+
 use crate::format::format_html;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+// Per-board posting cooldowns, in seconds.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct Cooldowns {
+    #[serde(default)]
+    pub threads: u32,
+    #[serde(default)]
+    pub replies: u32,
+    #[serde(default)]
+    pub images: u32,
+}
+
+// Fields mirror the 4chan boards.json schema and are consumed as features land.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Board {
+    #[serde(default)]
     board: String,
+    #[serde(default)]
     title: String,
+    #[serde(default)]
     meta_description: String,
-    per_page: isize,
-    pages: isize,
-    bump_limit: isize,
+    #[serde(default)]
+    per_page: u32,
+    #[serde(default)]
+    pages: u32,
+    #[serde(default)]
+    bump_limit: u32,
+    #[serde(default)]
+    ws_board: u8,
+    #[serde(default)]
+    image_limit: u32,
+    #[serde(default)]
+    max_filesize: u64,
+    #[serde(default)]
+    max_webm_filesize: u64,
+    #[serde(default)]
+    max_comment_chars: u32,
+    #[serde(default)]
+    max_webm_duration: u32,
+    #[serde(default)]
+    cooldowns: Cooldowns,
+    #[serde(default)]
+    board_flags: Option<HashMap<String, String>>,
+    #[serde(default)]
+    spoilers: Option<u8>,
+    #[serde(default)]
+    custom_spoilers: Option<u8>,
+    #[serde(default)]
+    is_archived: Option<u8>,
+    #[serde(default)]
+    country_flags: Option<u8>,
+    #[serde(default)]
+    user_ids: Option<u8>,
+    #[serde(default)]
+    oekaki: Option<u8>,
+    #[serde(default)]
+    sjis_tags: Option<u8>,
+    #[serde(default)]
+    code_tags: Option<u8>,
+    #[serde(default)]
+    math_tags: Option<u8>,
+    #[serde(default)]
+    text_only: Option<u8>,
+    #[serde(default)]
+    forced_anon: Option<u8>,
+    #[serde(default)]
+    webm_audio: Option<u8>,
+    #[serde(default)]
+    require_subject: Option<u8>,
+    #[serde(default)]
+    min_image_width: Option<u32>,
+    #[serde(default)]
+    min_image_height: Option<u32>,
 }
 
 impl Board {
@@ -25,17 +92,17 @@ impl Board {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn per_page(&self) -> isize {
+    pub(crate) fn per_page(&self) -> u32 {
         self.per_page
     }
 
     #[allow(dead_code)]
-    pub(crate) fn pages(&self) -> isize {
+    pub(crate) fn pages(&self) -> u32 {
         self.pages
     }
 
     #[allow(dead_code)]
-    pub(crate) fn bump_limit(&self) -> isize {
+    pub(crate) fn bump_limit(&self) -> u32 {
         self.bump_limit
     }
 }
@@ -99,7 +166,10 @@ impl Thread {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+// Fields mirror the 4chan thread/catalog post schema and are consumed as
+// features land.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadPost {
     #[serde(default)]
     no: usize,
@@ -127,6 +197,64 @@ pub struct ThreadPost {
     filename: Option<String>,
     #[serde(default)]
     tim: Option<u64>,
+    #[serde(default)]
+    resto: u64,
+    #[serde(default)]
+    trip: Option<String>,
+    #[serde(default)]
+    capcode: Option<String>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    country_name: Option<String>,
+    #[serde(default)]
+    board_flag: Option<String>,
+    #[serde(default)]
+    flag_name: Option<String>,
+    #[serde(default)]
+    tag: Option<String>,
+    #[serde(default)]
+    semantic_url: Option<String>,
+    #[serde(default)]
+    md5: Option<String>,
+    #[serde(default)]
+    fsize: Option<u64>,
+    #[serde(default)]
+    w: Option<u32>,
+    #[serde(default)]
+    h: Option<u32>,
+    #[serde(default)]
+    tn_w: Option<u32>,
+    #[serde(default)]
+    tn_h: Option<u32>,
+    #[serde(default)]
+    since4pass: Option<u32>,
+    #[serde(default)]
+    unique_ips: Option<u32>,
+    #[serde(default)]
+    archived_on: Option<u64>,
+    #[serde(default)]
+    filedeleted: Option<u8>,
+    #[serde(default)]
+    spoiler: Option<u8>,
+    #[serde(default)]
+    custom_spoiler: Option<u8>,
+    #[serde(default)]
+    images: Option<u32>,
+    #[serde(default)]
+    bumplimit: Option<u8>,
+    #[serde(default)]
+    imagelimit: Option<u8>,
+    #[serde(default)]
+    m_img: Option<u8>,
+    #[serde(default)]
+    archived: Option<u8>,
+    #[serde(default)]
+    last_replies: Option<Vec<ThreadPost>>,
+    #[serde(default)]
+    omitted_posts: Option<u32>,
+    #[serde(default)]
+    omitted_images: Option<u32>,
 }
 
 impl ThreadPost {
@@ -182,5 +310,10 @@ impl ThreadPost {
     #[allow(dead_code)]
     pub(crate) fn id(&self) -> &str {
         &self.id
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn last_replies(&self) -> &Option<Vec<ThreadPost>> {
+        &self.last_replies
     }
 }
