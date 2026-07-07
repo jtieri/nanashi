@@ -6,7 +6,9 @@ use reqwest::Client;
 use tokio::sync::Mutex;
 
 use crate::client::api::ApiUrlProvider;
-use crate::client::response::{BoardListResponse, ThreadListResponse, ThreadResponse};
+use crate::client::response::{
+    BoardListResponse, CatalogPage, ThreadListResponse, ThreadResponse, ThreadsPage,
+};
 use crate::model::{Board, Thread, ThreadPost};
 
 pub(crate) mod api;
@@ -94,5 +96,47 @@ impl ChanClient {
             .await?;
 
         Ok(thread_response.posts)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn get_catalog(&self, board: &str) -> ClientResult<Vec<CatalogPage>> {
+        self.throttle().await;
+        let pages: Vec<CatalogPage> = self
+            .client
+            .get(self.api.catalog(board))
+            .send()
+            .await?
+            .json::<Vec<CatalogPage>>()
+            .await?;
+
+        Ok(pages)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn get_thread_list(&self, board: &str) -> ClientResult<Vec<ThreadsPage>> {
+        self.throttle().await;
+        let pages: Vec<ThreadsPage> = self
+            .client
+            .get(self.api.thread_list(board))
+            .send()
+            .await?
+            .json::<Vec<ThreadsPage>>()
+            .await?;
+
+        Ok(pages)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn get_archive(&self, board: &str) -> ClientResult<Vec<u64>> {
+        self.throttle().await;
+        let archived: Vec<u64> = self
+            .client
+            .get(self.api.archive(board))
+            .send()
+            .await?
+            .json::<Vec<u64>>()
+            .await?;
+
+        Ok(archived)
     }
 }

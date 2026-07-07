@@ -6,6 +6,12 @@ pub trait ApiUrlProvider: Send + Sync {
     fn threads(&self, board: &str, page: u8) -> String;
 
     fn thread(&self, board: &str, no: u64) -> String;
+
+    fn catalog(&self, board: &str) -> String;
+
+    fn thread_list(&self, board: &str) -> String;
+
+    fn archive(&self, board: &str) -> String;
 }
 
 pub(crate) trait ContentUrlProvider {
@@ -44,6 +50,18 @@ impl ApiUrlProvider for Api4chan {
 
     fn thread(&self, board: &str, no: u64) -> String {
         format!("{}/{}/thread/{}.json", Self::BASE_API_URL, board, no)
+    }
+
+    fn catalog(&self, board: &str) -> String {
+        format!("{}/{}/catalog.json", Self::BASE_API_URL, board)
+    }
+
+    fn thread_list(&self, board: &str) -> String {
+        format!("{}/{}/threads.json", Self::BASE_API_URL, board)
+    }
+
+    fn archive(&self, board: &str) -> String {
+        format!("{}/{}/archive.json", Self::BASE_API_URL, board)
     }
 }
 
