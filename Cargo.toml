@@ -10,6 +10,7 @@ keywords = ["tui", "4chan", "imageboard", "terminal", "cli"]
 categories = ["command-line-utilities"]
 repository = "https://github.com/jtieri/nanashi"
 homepage = "https://github.com/jtieri/nanashi"
+exclude = ["/docs", "/.github"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
