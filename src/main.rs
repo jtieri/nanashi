@@ -13,7 +13,6 @@ use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::Terminal;
-use reqwest::Client;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::time::{interval, Duration};
 
@@ -70,7 +69,7 @@ async fn main() -> Result<(), io::Error> {
         }
     };
 
-    let client = ChanClient::new(Client::new(), api.as_api());
+    let client = ChanClient::new(api.as_api());
     let api: &dyn ContentUrlProvider = api.as_content();
 
     let boards: Vec<Board> = match client.get_boards().await {
