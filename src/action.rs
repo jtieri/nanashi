@@ -4,12 +4,18 @@ use crate::model::{Thread, ThreadPost};
 ///
 /// Input keys translate into the intent variants; the effect executor feeds the
 /// result variants back after an effect finishes.
+#[derive(Clone)]
 pub(crate) enum Action {
     // input intents
     Quit,
     Back,
     Enter,
     Move(isize),
+    SelectFirst,
+    SelectLast,
+    SelectIndex(usize),
+    HalfPageDown,
+    HalfPageUp,
     NextPage,
     PrevPage,
     Reload,

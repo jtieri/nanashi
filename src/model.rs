@@ -155,7 +155,7 @@ impl ThreadList {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thread {
     posts: Vec<ThreadPost>,
 }

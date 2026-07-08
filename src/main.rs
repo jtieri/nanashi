@@ -5,8 +5,7 @@ use futures::StreamExt;
 use open::that as open_in_browser;
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, EventStream, KeyEvent,
-    KeyEventKind,
+    DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, EventStream, KeyEventKind,
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
@@ -23,7 +22,7 @@ use crate::client::api::{
 };
 use crate::effect::Effect;
 use crate::event::normalize;
-use crate::keybinds::{matches, read_or_create_keybinds_file, Keybinds};
+use crate::input::{InputEngine, Keymap};
 use crate::model::Board;
 use crate::style::StyleProvider;
 
@@ -33,6 +32,7 @@ mod client;
 mod effect;
 mod event;
 mod format;
+mod input;
 mod keybinds;
 mod model;
 mod style;
@@ -40,10 +40,6 @@ mod ui;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
-    // Get keybinds from config file
-    let keybinds = read_or_create_keybinds_file().expect("Failed to read keybinds file");
-    let keybinds = Keybinds::parse_from_file(&keybinds).expect("Failed to parse keybinds file");
-
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -77,10 +73,10 @@ async fn main() -> Result<(), io::Error> {
         Err(_) => panic!("Could not fetch boards"),
     };
 
-    let mut app = App::new(boards, &keybinds, api);
+    let mut app = App::new(boards, api);
     app.set_shown_board_list(true);
 
-    let result = run(&mut terminal, &mut app, &keybinds, client).await;
+    let result = run(&mut terminal, &mut app, client).await;
 
     disable_raw_mode()?;
     execute!(
@@ -97,11 +93,13 @@ async fn main() -> Result<(), io::Error> {
 async fn run(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    keybinds: &Keybinds,
     client: ChanClient,
 ) -> Result<(), io::Error> {
     let style_prov = StyleProvider::new();
     let mut ctx = arboard::Clipboard::new().unwrap();
+
+    let keymap = Keymap::vim();
+    let mut engine = InputEngine::new();
 
     let (tx, mut rx) = unbounded_channel::<Action>();
     let mut reader = EventStream::new();
@@ -114,7 +112,7 @@ async fn run(
         let action = tokio::select! {
             maybe_event = reader.next() => match maybe_event {
                 Some(Ok(CrosstermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
-                    action_for(&normalize(key), keybinds)
+                    engine.on_key(normalize(key), &keymap)
                 }
                 Some(Ok(_)) | Some(Err(_)) => None,
                 None => {
@@ -175,44 +173,5 @@ fn run_effect(
             ctx.set_text(text).expect("Clipboard error.");
         }
         Effect::Quit => *running = false,
-    }
-}
-
-/// Translate a key event into an action, if it matches a configured keybind.
-fn action_for(input: &KeyEvent, keybinds: &Keybinds) -> Option<Action> {
-    if matches(input, &keybinds.quit) {
-        Some(Action::Quit)
-    } else if matches(input, &keybinds.left) {
-        Some(Action::Back)
-    } else if matches(input, &keybinds.down) {
-        Some(Action::Move(1))
-    } else if matches(input, &keybinds.up) {
-        Some(Action::Move(-1))
-    } else if matches(input, &keybinds.quick_down) {
-        Some(Action::Move(5))
-    } else if matches(input, &keybinds.quick_up) {
-        Some(Action::Move(-5))
-    } else if matches(input, &keybinds.fullscreen) {
-        Some(Action::ToggleFullscreen)
-    } else if matches(input, &keybinds.help) {
-        Some(Action::ToggleHelp)
-    } else if matches(input, &keybinds.open_thread) {
-        Some(Action::OpenThread)
-    } else if matches(input, &keybinds.open_media) {
-        Some(Action::OpenMedia)
-    } else if matches(input, &keybinds.copy_thread) {
-        Some(Action::CopyThread)
-    } else if matches(input, &keybinds.copy_media) {
-        Some(Action::CopyMedia)
-    } else if matches(input, &keybinds.page_next) {
-        Some(Action::NextPage)
-    } else if matches(input, &keybinds.page_previous) {
-        Some(Action::PrevPage)
-    } else if matches(input, &keybinds.reload) {
-        Some(Action::Reload)
-    } else if matches(input, &keybinds.right) {
-        Some(Action::Enter)
-    } else {
-        None
     }
 }

@@ -7,11 +7,12 @@ use ratatui::Frame;
 use crate::format::format_default;
 use crate::model::Board;
 use crate::style::StyleProvider;
-use crate::ui::component::{advance_selection, Pane};
+use crate::ui::component::{content_height, Pane};
 
 pub(crate) struct BoardsPane {
     pub(crate) items: Vec<Board>,
     pub(crate) state: ListState,
+    height: usize,
 }
 
 impl BoardsPane {
@@ -19,6 +20,7 @@ impl BoardsPane {
         Self {
             items,
             state: ListState::default(),
+            height: 1,
         }
     }
 
@@ -29,6 +31,7 @@ impl BoardsPane {
         focused: bool,
         style: &StyleProvider,
     ) {
+        self.height = content_height(area.height);
         let items: Vec<ListItem> = self
             .items
             .iter()
@@ -64,11 +67,15 @@ impl BoardsPane {
 }
 
 impl Pane for BoardsPane {
-    fn move_selection(&mut self, delta: isize) {
-        advance_selection(&mut self.state, self.items.len(), delta);
+    fn state_mut(&mut self) -> &mut ListState {
+        &mut self.state
     }
 
-    fn is_empty(&self) -> bool {
-        self.items.is_empty()
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn height(&self) -> usize {
+        self.height
     }
 }

@@ -2,7 +2,7 @@ use crate::action::Action;
 use crate::client::api::ContentUrlProvider;
 use crate::effect::Effect;
 use crate::format::format_html;
-use crate::keybinds::{display_key, Keybinds};
+use crate::input::help_text;
 use crate::model::{Board, Thread, ThreadList, ThreadPost};
 use crate::style::SelectedField;
 use crate::ui::component::Pane;
@@ -27,99 +27,8 @@ pub(crate) struct App {
     select_threads_on_load: bool,
 }
 
-/// Format 2D array as table, with aligned columns
-fn format_table(data: &[&[&str]]) -> String {
-    // Find the maximum length of each column
-    let mut max_lengths = vec![0; data[0].len()];
-    for row in data {
-        for (i, &cell) in row.iter().enumerate() {
-            max_lengths[i] = max_lengths[i].max(cell.len());
-        }
-    }
-    // Compile table
-    let mut rows = Vec::new();
-    for row in data {
-        let mut cells = Vec::new();
-        for (i, &cell) in row.iter().enumerate() {
-            cells.push(format!("{:<width$} ", cell, width = max_lengths[i] + 3));
-        }
-        rows.push(cells.join(""));
-    }
-    rows.join("\n")
-}
-
 impl App {
-    pub(crate) fn new(
-        boards: Vec<Board>,
-        keybinds: &Keybinds,
-        provider: &'static dyn ContentUrlProvider,
-    ) -> Self {
-        /// Get keybinds as strings
-        macro_rules! get_keys {
-            ( $($name:ident),* $(,)? ) => {
-                $( let $name = display_key(&keybinds.$name);)*
-            }
-        }
-        get_keys![
-            up,
-            down,
-            left,
-            right,
-            quick_up,
-            quick_down,
-            quick_left,
-            quick_right,
-            page_next,
-            page_previous,
-            copy_thread,
-            open_thread,
-            copy_media,
-            open_media,
-            fullscreen,
-            reload,
-            help,
-            quit,
-        ];
-
-        // Create table of keybinds
-        let table: &[&[&str]] = &[
-            &[
-                "move around:",
-                &format!("{up}, {down}, {left}, {right}"),
-                "toggle help bar:",
-                &help,
-            ],
-            &[
-                "move quickly:",
-                &format!("{quick_up}, {quick_down}, {quick_left}, {quick_right}"),
-                "copy thread/post url:",
-                &copy_thread,
-            ],
-            &[
-                "toggle fullscreen:",
-                &fullscreen,
-                "copy media url:",
-                &copy_media,
-            ],
-            &[
-                "next page:",
-                &page_next,
-                "open thread/post in browser",
-                &open_thread,
-            ],
-            &["previous page:", &page_previous, "reload page:", &reload],
-            &["quit:", &quit, "open media url in browser:", &open_media],
-        ];
-
-        let text = format!(
-            r##"
-                {table}
-                Controls can be changed in ~/.config/nanashi/keybinds.conf
-                Note: to enter the board/thread use "{right}"
-            "##,
-            table = format_table(table)
-        );
-
+    pub(crate) fn new(boards: Vec<Board>, provider: &'static dyn ContentUrlProvider) -> Self {
         Self {
             boards: BoardsPane::new(boards),
             threads: ThreadsPane::new(vec![]),
@@ -133,8 +42,8 @@ impl App {
             },
             help_bar: HelpBar {
                 shown: false,
-                title: format!("Help (\"{help}\" to toggle)"),
-                text,
+                title: "Help (\"?\" to toggle)".to_string(),
+                text: help_text(),
             },
             status: None,
             pending: 0,
@@ -166,11 +75,31 @@ impl App {
         match action {
             Action::Quit => vec![Effect::Quit],
             Action::Move(delta) => {
-                match self.focus {
-                    SelectedField::BoardList => self.boards.move_selection(delta),
-                    SelectedField::ThreadList => self.threads.move_selection(delta),
-                    SelectedField::Thread => self.thread.move_selection(delta),
-                }
+                self.focused_pane().move_selection(delta);
+                vec![]
+            }
+            Action::SelectFirst => {
+                self.focused_pane().select_first();
+                vec![]
+            }
+            Action::SelectLast => {
+                self.focused_pane().select_last();
+                vec![]
+            }
+            Action::SelectIndex(index) => {
+                self.focused_pane().select_index(index);
+                vec![]
+            }
+            Action::HalfPageDown => {
+                let pane = self.focused_pane();
+                let step = (pane.height() / 2).max(1) as isize;
+                pane.scroll(step);
+                vec![]
+            }
+            Action::HalfPageUp => {
+                let pane = self.focused_pane();
+                let step = (pane.height() / 2).max(1) as isize;
+                pane.scroll(-step);
                 vec![]
             }
             Action::Back => {
@@ -344,6 +273,14 @@ impl App {
 
     pub(crate) fn thread_list_description(&self) -> &str {
         self.thread_list.description()
+    }
+
+    fn focused_pane(&mut self) -> &mut dyn Pane {
+        match self.focus {
+            SelectedField::BoardList => &mut self.boards,
+            SelectedField::ThreadList => &mut self.threads,
+            SelectedField::Thread => &mut self.thread,
+        }
     }
 
     fn selected_board(&self) -> &Board {
@@ -537,10 +474,9 @@ mod tests {
     ]"#;
 
     fn sample_app() -> App {
-        let keybinds = Keybinds::parse_from_file("").unwrap();
         let provider = from_name("4chan").unwrap().as_content();
         let boards: Vec<Board> = serde_json::from_str(BOARDS_JSON).unwrap();
-        let mut app = App::new(boards, &keybinds, provider);
+        let mut app = App::new(boards, provider);
         app.set_shown_board_list(true);
         app
     }

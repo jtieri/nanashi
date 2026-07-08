@@ -6,11 +6,12 @@ use ratatui::Frame;
 use crate::format::{format_default, format_post_full};
 use crate::model::ThreadPost;
 use crate::style::StyleProvider;
-use crate::ui::component::{advance_selection, Pane};
+use crate::ui::component::{content_height, Pane};
 
 pub(crate) struct RepliesPane {
     pub(crate) items: Vec<ThreadPost>,
     pub(crate) state: ListState,
+    height: usize,
 }
 
 impl RepliesPane {
@@ -18,6 +19,7 @@ impl RepliesPane {
         Self {
             items,
             state: ListState::default(),
+            height: 1,
         }
     }
 
@@ -29,6 +31,7 @@ impl RepliesPane {
         style: &StyleProvider,
         title: &str,
     ) {
+        self.height = content_height(area.height);
         let items: Vec<ListItem> = self
             .items
             .iter()
@@ -51,11 +54,15 @@ impl RepliesPane {
 }
 
 impl Pane for RepliesPane {
-    fn move_selection(&mut self, delta: isize) {
-        advance_selection(&mut self.state, self.items.len(), delta);
+    fn state_mut(&mut self) -> &mut ListState {
+        &mut self.state
     }
 
-    fn is_empty(&self) -> bool {
-        self.items.is_empty()
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn height(&self) -> usize {
+        self.height
     }
 }

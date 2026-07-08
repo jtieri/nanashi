@@ -1,3 +1,7 @@
+// The running app now drives input through the vim engine in `input.rs`; the
+// flat config below is unused and gets removed in the next step.
+#![allow(dead_code, unused_imports)]
+
 mod file;
 mod key;
 
