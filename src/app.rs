@@ -202,6 +202,12 @@ impl App {
                 self.help_bar.toggle_shown();
                 vec![]
             }
+            Action::Escape => {
+                if self.help_bar.shown() {
+                    self.help_bar.toggle_shown();
+                }
+                vec![]
+            }
             Action::OpenThread => vec![Effect::OpenBrowser(self.thread_url())],
             Action::CopyThread => vec![Effect::CopyToClipboard(self.thread_url())],
             Action::OpenMedia => match self.media_url_for_focus() {

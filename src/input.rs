@@ -27,6 +27,7 @@ impl Keymap {
             (vec![key('r')], Action::Reload),
             (vec![key('f')], Action::ToggleFullscreen),
             (vec![key('?')], Action::ToggleHelp),
+            (vec![esc()], Action::Escape),
             (vec![key('o')], Action::OpenThread),
             (vec![key('O')], Action::OpenMedia),
             (vec![key('y')], Action::CopyThread),
@@ -129,6 +130,10 @@ fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
+fn esc() -> KeyEvent {
+    KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+}
+
 /// The keybindings shown in the help overlay, as (keys, description) pairs.
 pub(crate) fn help_entries() -> &'static [(&'static str, &'static str)] {
     &[
@@ -147,7 +152,7 @@ pub(crate) fn help_entries() -> &'static [(&'static str, &'static str)] {
 }
 
 /// A short hint about numeric counts, shown beneath the help overlay.
-pub(crate) const HELP_COUNTS_HINT: &str = "counts: 5j moves down five, 10G jumps to item ten";
+pub(crate) const HELP_COUNTS_HINT: &str = "counts: 5j, 10G scale motions      close: ? or Esc";
 
 #[cfg(test)]
 mod tests {
@@ -229,6 +234,11 @@ mod tests {
     fn h_and_l_navigate() {
         assert!(matches!(run(&[press('h')]), Some(Action::Back)));
         assert!(matches!(run(&[press('l')]), Some(Action::Enter)));
+    }
+
+    #[test]
+    fn esc_returns_escape() {
+        assert!(matches!(run(&[esc()]), Some(Action::Escape)));
     }
 
     #[test]

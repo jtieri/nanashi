@@ -21,6 +21,7 @@ pub(crate) enum Action {
     Reload,
     ToggleFullscreen,
     ToggleHelp,
+    Escape,
     OpenThread,
     OpenMedia,
     CopyThread,
