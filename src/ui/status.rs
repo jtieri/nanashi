@@ -4,12 +4,24 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, Mode};
 use crate::input::{help_entries, HELP_COUNTS_HINT};
 
-/// Render the one-line status bar: a spinner while fetches are in flight, the
-/// last error otherwise, and nothing when idle.
+/// Render the one-line status bar. In command mode it shows the `:` prompt and
+/// the typed buffer; otherwise a spinner while fetches are in flight, the last
+/// error, or nothing when idle.
 pub(crate) fn render_status(frame: &mut Frame, app: &App, area: Rect) {
+    if app.mode() == Mode::Command {
+        let text = format!(":{}", app.command_line());
+        frame.render_widget(Paragraph::new(Line::from(text.clone())), area);
+
+        // Park the cursor just past the typed text, clamped inside the row.
+        let cursor_x = area.x.saturating_add(text.chars().count() as u16);
+        let max_x = area.x.saturating_add(area.width.saturating_sub(1));
+        frame.set_cursor_position((cursor_x.min(max_x), area.y));
+        return;
+    }
+
     let line = if app.pending() > 0 {
         Line::from(format!("{} loading", app.spinner_frame()))
     } else if let Some(err) = app.status() {

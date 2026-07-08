@@ -28,6 +28,7 @@ impl Keymap {
             (vec![key('f')], Action::ToggleFullscreen),
             (vec![key('?')], Action::ToggleHelp),
             (vec![esc()], Action::Escape),
+            (vec![key(':')], Action::EnterCommand),
             (vec![key('o')], Action::OpenThread),
             (vec![key('O')], Action::OpenMedia),
             (vec![key('y')], Action::CopyThread),
@@ -96,6 +97,26 @@ impl InputEngine {
         self.buffer.clear();
         self.count = None;
         None
+    }
+}
+
+/// Translate a raw key press into a command-mode action.
+///
+/// Command mode bypasses the vim engine: printable characters extend the
+/// command line, Backspace trims it, Enter submits, and Esc cancels.
+pub(crate) fn command_key(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char(c)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            Some(Action::CommandChar(c))
+        }
+        KeyCode::Backspace => Some(Action::CommandBackspace),
+        KeyCode::Enter => Some(Action::CommandSubmit),
+        KeyCode::Esc => Some(Action::Escape),
+        _ => None,
     }
 }
 

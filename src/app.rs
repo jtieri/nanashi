@@ -9,11 +9,21 @@ use crate::ui::{BoardsPane, RepliesPane, ThreadsPane};
 
 const SPINNER_FRAMES: [char; 4] = ['|', '/', '-', '\\'];
 
+/// The input mode. Normal mode drives navigation; Command mode collects a
+/// typed `:` command on the bottom row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Mode {
+    Normal,
+    Command,
+}
+
 pub(crate) struct App {
     pub(crate) boards: BoardsPane,
     pub(crate) threads: ThreadsPane,
     pub(crate) thread: RepliesPane,
     focus: SelectedField,
+    mode: Mode,
+    command_line: String,
     thread_list: ThreadList,
     shown_state: ShownState,
     help_bar: HelpBar,
@@ -33,6 +43,8 @@ impl App {
             threads: ThreadsPane::new(vec![]),
             thread: RepliesPane::new(vec![]),
             focus: SelectedField::BoardList,
+            mode: Mode::Normal,
+            command_line: String::new(),
             thread_list: ThreadList::new(),
             shown_state: ShownState {
                 board_list: false,
@@ -203,10 +215,41 @@ impl App {
                 vec![]
             }
             Action::Escape => {
-                if self.help_bar.shown() {
+                if self.mode == Mode::Command {
+                    self.mode = Mode::Normal;
+                    self.command_line.clear();
+                } else if self.help_bar.shown() {
                     self.help_bar.toggle_shown();
                 }
                 vec![]
+            }
+            Action::EnterCommand => {
+                self.mode = Mode::Command;
+                self.command_line.clear();
+                vec![]
+            }
+            Action::CommandChar(c) => {
+                self.command_line.push(c);
+                vec![]
+            }
+            Action::CommandBackspace => {
+                self.command_line.pop();
+                vec![]
+            }
+            Action::CommandSubmit => {
+                let cmd = self.command_line.trim().to_string();
+                self.mode = Mode::Normal;
+                self.command_line.clear();
+                if cmd.is_empty() {
+                    return vec![];
+                }
+                match parse_command(&cmd) {
+                    Some(action) => self.step(action),
+                    None => {
+                        self.status = Some(format!("unknown command: {cmd}"));
+                        vec![]
+                    }
+                }
             }
             Action::OpenThread => vec![Effect::OpenBrowser(self.thread_url())],
             Action::CopyThread => vec![Effect::CopyToClipboard(self.thread_url())],
@@ -266,6 +309,14 @@ impl App {
 
     pub(crate) fn focus(&self) -> &SelectedField {
         &self.focus
+    }
+
+    pub(crate) fn mode(&self) -> Mode {
+        self.mode
+    }
+
+    pub(crate) fn command_line(&self) -> &str {
+        &self.command_line
     }
 
     pub(crate) fn thread_list_page(&self) -> u8 {
@@ -402,6 +453,20 @@ impl App {
         );
 
         Some(url)
+    }
+}
+
+/// Parse a submitted command line into an action, if it names one.
+fn parse_command(cmd: &str) -> Option<Action> {
+    match cmd {
+        "q" | "quit" => Some(Action::Quit),
+        "r" | "reload" => Some(Action::Reload),
+        "help" | "h" => Some(Action::ToggleHelp),
+        _ if !cmd.is_empty() && cmd.bytes().all(|b| b.is_ascii_digit()) => {
+            let n: usize = cmd.parse().ok()?;
+            Some(Action::SelectIndex(n.saturating_sub(1)))
+        }
+        _ => None,
     }
 }
 
@@ -634,6 +699,82 @@ mod tests {
         app.update(Action::LoadFailed("boom".to_string()));
         assert_eq!(app.pending, 0);
         assert_eq!(app.status.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn parse_command_maps_known_commands() {
+        assert!(matches!(parse_command("q"), Some(Action::Quit)));
+        assert!(matches!(parse_command("quit"), Some(Action::Quit)));
+        assert!(matches!(parse_command("r"), Some(Action::Reload)));
+        assert!(matches!(parse_command("reload"), Some(Action::Reload)));
+        assert!(matches!(parse_command("help"), Some(Action::ToggleHelp)));
+        assert!(matches!(parse_command("h"), Some(Action::ToggleHelp)));
+    }
+
+    #[test]
+    fn parse_command_maps_digits_to_index() {
+        assert!(matches!(parse_command("15"), Some(Action::SelectIndex(14))));
+        assert!(matches!(parse_command("1"), Some(Action::SelectIndex(0))));
+        // Saturating: both `0` and `1` land on the first row.
+        assert!(matches!(parse_command("0"), Some(Action::SelectIndex(0))));
+    }
+
+    #[test]
+    fn parse_command_rejects_unknown() {
+        assert!(parse_command("nonsense").is_none());
+        assert!(parse_command("").is_none());
+    }
+
+    #[test]
+    fn command_mode_builds_and_runs() {
+        let mut app = sample_app();
+        assert_eq!(app.mode(), Mode::Normal);
+
+        app.update(Action::EnterCommand);
+        assert_eq!(app.mode(), Mode::Command);
+        assert_eq!(app.command_line(), "");
+
+        app.update(Action::CommandChar('q'));
+        assert_eq!(app.command_line(), "q");
+
+        let effects = app.update(Action::CommandSubmit);
+        assert!(matches!(effects.as_slice(), [Effect::Quit]));
+        assert_eq!(app.mode(), Mode::Normal);
+        assert_eq!(app.command_line(), "");
+    }
+
+    #[test]
+    fn command_mode_escape_cancels() {
+        let mut app = sample_app();
+        app.update(Action::EnterCommand);
+        app.update(Action::CommandChar('q'));
+
+        app.update(Action::Escape);
+        assert_eq!(app.mode(), Mode::Normal);
+        assert_eq!(app.command_line(), "");
+    }
+
+    #[test]
+    fn command_backspace_trims_buffer() {
+        let mut app = sample_app();
+        app.update(Action::EnterCommand);
+        app.update(Action::CommandChar('a'));
+        app.update(Action::CommandChar('b'));
+        app.update(Action::CommandBackspace);
+        assert_eq!(app.command_line(), "a");
+    }
+
+    #[test]
+    fn unknown_command_sets_status() {
+        let mut app = sample_app();
+        app.update(Action::EnterCommand);
+        for c in "nope".chars() {
+            app.update(Action::CommandChar(c));
+        }
+        let effects = app.update(Action::CommandSubmit);
+        assert!(effects.is_empty());
+        assert_eq!(app.status.as_deref(), Some("unknown command: nope"));
+        assert_eq!(app.mode(), Mode::Normal);
     }
 
     #[test]

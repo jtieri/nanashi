@@ -16,13 +16,13 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::time::{interval, Duration};
 
 use crate::action::Action;
-use crate::app::App;
+use crate::app::{App, Mode};
 use crate::client::api::{
     from_name as channel_provider_from_name, ChannelProvider, ContentUrlProvider,
 };
 use crate::effect::Effect;
 use crate::event::normalize;
-use crate::input::{InputEngine, Keymap};
+use crate::input::{command_key, InputEngine, Keymap};
 use crate::model::Board;
 use crate::style::StyleProvider;
 
@@ -112,7 +112,10 @@ async fn run(
         let action = tokio::select! {
             maybe_event = reader.next() => match maybe_event {
                 Some(Ok(CrosstermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
-                    engine.on_key(normalize(key), &keymap)
+                    match app.mode() {
+                        Mode::Normal => engine.on_key(normalize(key), &keymap),
+                        Mode::Command => command_key(key),
+                    }
                 }
                 Some(Ok(_)) | Some(Err(_)) => None,
                 None => {
