@@ -14,47 +14,35 @@ use ratatui::Frame;
 use crate::app::App;
 use crate::style::{SelectedField, StyleProvider};
 
-/// Draw the help bar split and the three-column Miller layout.
+/// Draw the three-column Miller layout, the status line, and the help overlay.
 pub(crate) fn draw(frame: &mut Frame, app: &mut App, style: &StyleProvider) {
+    let area = frame.area();
     let scr_share = app.calc_screen_share();
-    let help_shown = app.help_bar().shown();
 
-    let mut constraints = vec![Constraint::Min(0)];
-    if help_shown {
-        constraints.push(Constraint::Length(10));
-    }
-    // The status bar always claims the bottom row.
-    constraints.push(Constraint::Length(1));
-
-    let helpbar_chunk = Layout::default()
-        .constraints(constraints)
-        .split(frame.area());
-
-    if help_shown {
-        status::render_help(frame, app.help_bar(), helpbar_chunk[1]);
-    }
-
-    status::render_status(frame, app, helpbar_chunk[helpbar_chunk.len() - 1]);
+    // Panes fill everything above a one-row status line.
+    let rows = Layout::default()
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(area);
+    let panes = rows[0];
+    let status_row = rows[1];
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage(scr_share.board_list()),
-                Constraint::Percentage(scr_share.thread_list()),
-                Constraint::Percentage(scr_share.thread()),
-            ]
-            .as_ref(),
-        )
-        .split(helpbar_chunk[0]);
+        .constraints([
+            Constraint::Percentage(scr_share.board_list()),
+            Constraint::Percentage(scr_share.thread_list()),
+            Constraint::Percentage(scr_share.thread()),
+        ])
+        .split(panes);
 
     let boards_focused = matches!(app.focus(), SelectedField::BoardList);
     let threads_focused = matches!(app.focus(), SelectedField::ThreadList);
     let thread_focused = matches!(app.focus(), SelectedField::Thread);
 
     let threads_title = format!(
-        "Threads, page {} {}",
+        "Threads, page {}/{} {}",
         app.thread_list_page(),
+        app.thread_list_total_pages(),
         app.thread_list_description()
     );
     let replies_title = format!("Thread {}", app.selected_thread_description());
@@ -64,4 +52,10 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App, style: &StyleProvider) {
         .render(frame, chunks[1], threads_focused, style, &threads_title);
     app.thread
         .render(frame, chunks[2], thread_focused, style, &replies_title);
+
+    status::render_status(frame, app, status_row);
+
+    if app.help_bar().shown() {
+        status::render_help(frame, area);
+    }
 }

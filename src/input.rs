@@ -129,37 +129,25 @@ fn ctrl(c: char) -> KeyEvent {
     KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
 }
 
-/// Human-readable help listing the default bindings.
-pub(crate) fn help_text() -> String {
-    let rows: &[(&str, &str)] = &[
-        ("move down", "j"),
-        ("move up", "k"),
-        ("back", "h"),
-        ("enter", "l"),
-        ("top", "gg"),
-        ("bottom", "G"),
-        ("half page down", "Ctrl-d"),
-        ("half page up", "Ctrl-u"),
-        ("next page", "]"),
-        ("previous page", "["),
-        ("reload", "r"),
-        ("toggle fullscreen", "f"),
-        ("toggle help", "?"),
-        ("open thread/post", "o"),
-        ("open media", "O"),
-        ("copy thread/post url", "y"),
-        ("copy media url", "Y"),
-        ("quit", "q"),
-    ];
-
-    let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
-    let mut text = String::new();
-    for (label, keys) in rows {
-        text.push_str(&format!("{label:<width$}  {keys}\n"));
-    }
-    text.push_str("\nCounts work like 5j or 10G.");
-    text
+/// The keybindings shown in the help overlay, as (keys, description) pairs.
+pub(crate) fn help_entries() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("j / k", "move down / up"),
+        ("h / l", "back / enter pane"),
+        ("gg / G", "jump to top / bottom"),
+        ("Ctrl-d / Ctrl-u", "half page down / up"),
+        ("] / [", "next / previous page"),
+        ("r", "reload"),
+        ("f", "fullscreen the pane"),
+        ("o / O", "open thread / media in browser"),
+        ("y / Y", "copy thread / media url"),
+        ("?", "toggle this help"),
+        ("q", "quit"),
+    ]
 }
+
+/// A short hint about numeric counts, shown beneath the help overlay.
+pub(crate) const HELP_COUNTS_HINT: &str = "counts: 5j moves down five, 10G jumps to item ten";
 
 #[cfg(test)]
 mod tests {

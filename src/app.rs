@@ -2,7 +2,6 @@ use crate::action::Action;
 use crate::client::api::ContentUrlProvider;
 use crate::effect::Effect;
 use crate::format::format_html;
-use crate::input::help_text;
 use crate::model::{Board, Thread, ThreadList, ThreadPost};
 use crate::style::SelectedField;
 use crate::ui::component::Pane;
@@ -40,11 +39,7 @@ impl App {
                 thread_list: false,
                 thread: false,
             },
-            help_bar: HelpBar {
-                shown: false,
-                title: "Help (\"?\" to toggle)".to_string(),
-                text: help_text(),
-            },
+            help_bar: HelpBar { shown: false },
             status: None,
             pending: 0,
             spinner: 0,
@@ -271,6 +266,10 @@ impl App {
         self.thread_list.cur_page()
     }
 
+    pub(crate) fn thread_list_total_pages(&self) -> u32 {
+        self.selected_board().pages()
+    }
+
     pub(crate) fn thread_list_description(&self) -> &str {
         self.thread_list.description()
     }
@@ -436,8 +435,6 @@ struct ShownState {
 
 pub(crate) struct HelpBar {
     shown: bool,
-    title: String,
-    text: String,
 }
 
 impl HelpBar {
@@ -447,14 +444,6 @@ impl HelpBar {
 
     pub(crate) fn toggle_shown(&mut self) {
         self.shown ^= true;
-    }
-
-    pub(crate) fn title(&self) -> &String {
-        &self.title
-    }
-
-    pub(crate) fn text(&self) -> &String {
-        &self.text
     }
 }
 
