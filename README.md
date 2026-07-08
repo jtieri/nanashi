@@ -19,9 +19,15 @@ The short version:
 - saving media, and eventually posting
 - other imageboards down the line, not only 4chan
 
-## Building
+## Installing
 
-You'll need [Rust](https://www.rust-lang.org/tools/install).
+From crates.io:
+
+```shell
+cargo install nanashi
+```
+
+Or from source (you'll need [Rust](https://www.rust-lang.org/tools/install)):
 
 ```shell
 git clone https://github.com/jtieri/nanashi.git
@@ -29,36 +35,36 @@ cd nanashi
 cargo install --path .
 ```
 
-That puts a `nanashi` binary in `~/.cargo/bin`. Run it with:
+Either way you get a `nanashi` binary in `~/.cargo/bin`. Run it with:
 
 ```shell
 nanashi
 ```
 
-To get rid of it later, `cargo uninstall nanashi`.
+To remove it later, `cargo uninstall nanashi`.
 
 ## Controls
 
-These are the defaults inherited from tui-chan, and they'll change once the vim
-keybindings land. They live in `~/.config/nanashi/keybinds.conf` and can be
-remapped.
+Navigation is vim-style, and a count works in front of a motion, so `5j` moves
+down five and `10G` jumps to the tenth item. Press `?` for the help bar.
 
-Press `h` for the help bar. `d` opens the highlighted board or thread, and `a`
-steps back a pane.
+| Action                          | Keys              |
+|---------------------------------|-------------------|
+| Move down / up                  | `j` / `k`         |
+| Move between panes (back / in)  | `h` / `l`         |
+| Jump to top / bottom            | `gg` / `G`        |
+| Half page down / up             | `Ctrl-d` / `Ctrl-u` |
+| Next / previous page            | `]` / `[`         |
+| Reload                          | `r`               |
+| Fullscreen the focused pane     | `f`               |
+| Open thread/post in a browser   | `o`               |
+| Open media in a browser         | `O`               |
+| Copy thread/post url            | `y`               |
+| Copy media url                  | `Y`               |
+| Toggle the help bar             | `?`               |
+| Quit                            | `q`               |
 
-| Action                                        | Keys                      |
-|-----------------------------------------------|---------------------------|
-| Move around                                   | `w`, `a`, `s`, `d`        |
-| Move quickly                                  | control + `w`/`a`/`s`/`d` |
-| Toggle the help bar                           | `h`                       |
-| Next / previous page                          | `p` / control + `p`       |
-| Reload the page                               | `r`                       |
-| Fullscreen the selected panel                 | `z`                       |
-| Copy the selected thread or post url          | `c`                       |
-| Copy the selected post's media url            | control + `c`             |
-| Open the selected thread or post in a browser | `o`                       |
-| Open the selected post's media in a browser   | control + `o`             |
-| Quit                                          | `q`                       |
+The bindings are built in for now. A config file to remap them is coming.
 
 ## Credits
 
