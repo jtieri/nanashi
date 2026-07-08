@@ -48,7 +48,6 @@ const CUT_MSG: &str = "[...]";
 const CUT_MSG_LEN: usize = CUT_MSG.len();
 
 const LIMIT_SHORT: usize = 10;
-const LIMIT_LONG: usize = 60;
 
 fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListItem<'_> {
     let mut lines = vec![Line::from("")];
@@ -100,11 +99,15 @@ fn format_post(post: &ThreadPost, no: String, area: Rect, short: bool) -> ListIt
         )));
     }
 
-    let cut_com = format_post_contents(
-        post.com(),
-        calc_width(area) as usize,
-        if short { LIMIT_SHORT } else { LIMIT_LONG },
-    );
+    // Cap a post to the pane height. ratatui's List renders nothing for a
+    // selected item taller than the viewport, so keep every item within it.
+    let max_lines = (area.height as usize).saturating_sub(7).max(1);
+    let line_limit = if short {
+        LIMIT_SHORT.min(max_lines)
+    } else {
+        max_lines
+    };
+    let cut_com = format_post_contents(post.com(), calc_width(area) as usize, line_limit);
     for span in cut_com {
         lines.push(span);
     }
