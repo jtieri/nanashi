@@ -160,3 +160,125 @@ pub(crate) fn help_text() -> String {
     text.push_str("\nCounts work like 5j or 10G.");
     text
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn press(c: char) -> KeyEvent {
+        key(c)
+    }
+
+    fn run(keys: &[KeyEvent]) -> Option<Action> {
+        let keymap = Keymap::vim();
+        let mut engine = InputEngine::new();
+        let mut last = None;
+        for &k in keys {
+            last = engine.on_key(k, &keymap);
+        }
+        last
+    }
+
+    #[test]
+    fn j_and_k_move() {
+        assert!(matches!(run(&[press('j')]), Some(Action::Move(1))));
+        assert!(matches!(run(&[press('k')]), Some(Action::Move(-1))));
+    }
+
+    #[test]
+    fn count_scales_move() {
+        assert!(matches!(
+            run(&[press('5'), press('j')]),
+            Some(Action::Move(5))
+        ));
+        assert!(matches!(
+            run(&[press('1'), press('0'), press('j')]),
+            Some(Action::Move(10))
+        ));
+    }
+
+    #[test]
+    fn count_flips_with_direction() {
+        assert!(matches!(
+            run(&[press('3'), press('k')]),
+            Some(Action::Move(-3))
+        ));
+    }
+
+    #[test]
+    fn gg_selects_first_and_single_g_waits() {
+        assert!(matches!(
+            run(&[press('g'), press('g')]),
+            Some(Action::SelectFirst)
+        ));
+        assert!(run(&[press('g')]).is_none());
+    }
+
+    #[test]
+    fn uppercase_g_selects_last() {
+        assert!(matches!(run(&[press('G')]), Some(Action::SelectLast)));
+    }
+
+    #[test]
+    fn count_turns_g_into_index() {
+        match run(&[press('3'), press('G')]) {
+            Some(Action::SelectIndex(2)) => {}
+            _ => panic!("expected SelectIndex(2)"),
+        }
+        match run(&[press('1'), press('0'), press('G')]) {
+            Some(Action::SelectIndex(9)) => {}
+            _ => panic!("expected SelectIndex(9)"),
+        }
+    }
+
+    #[test]
+    fn ctrl_d_half_page_down() {
+        let key = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert!(matches!(run(&[key]), Some(Action::HalfPageDown)));
+    }
+
+    #[test]
+    fn h_and_l_navigate() {
+        assert!(matches!(run(&[press('h')]), Some(Action::Back)));
+        assert!(matches!(run(&[press('l')]), Some(Action::Enter)));
+    }
+
+    #[test]
+    fn unmapped_key_resets_buffer() {
+        let keymap = Keymap::vim();
+        let mut engine = InputEngine::new();
+        assert!(engine.on_key(press('x'), &keymap).is_none());
+        // The buffer reset, so a following `j` still resolves cleanly.
+        assert!(matches!(
+            engine.on_key(press('j'), &keymap),
+            Some(Action::Move(1))
+        ));
+    }
+
+    #[test]
+    fn bare_zero_is_ignored() {
+        assert!(run(&[press('0')]).is_none());
+        // A leading zero does not scale a later count into a valid move.
+        assert!(matches!(
+            run(&[press('0'), press('j')]),
+            Some(Action::Move(1))
+        ));
+    }
+
+    #[test]
+    fn count_resets_after_use() {
+        let keymap = Keymap::vim();
+        let mut engine = InputEngine::new();
+        assert!(matches!(
+            engine
+                .on_key(press('5'), &keymap)
+                .or(engine.on_key(press('j'), &keymap)),
+            Some(Action::Move(5))
+        ));
+        // The next bare `j` is unscaled.
+        assert!(matches!(
+            engine.on_key(press('j'), &keymap),
+            Some(Action::Move(1))
+        ));
+    }
+}
