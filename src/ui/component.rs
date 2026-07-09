@@ -6,6 +6,12 @@ pub(crate) trait Pane {
     fn len(&self) -> usize;
     fn height(&self) -> usize;
 
+    /// The currently selected index, if any.
+    fn selected(&self) -> Option<usize>;
+
+    /// Lowercased searchable text for the item at `index`, used by search.
+    fn match_text(&self, index: usize) -> String;
+
     #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         self.len() == 0

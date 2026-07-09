@@ -16,6 +16,11 @@ pub(crate) fn format_html(str: &str) -> String {
     htmlescape::decode_html(str).unwrap()
 }
 
+/// Decode HTML entities and strip tags, leaving plain text.
+pub(crate) fn plain_text(html: &str) -> String {
+    strip_tags(&format_html(html))
+}
+
 /// Remove HTML tags, keeping the text between them.
 fn strip_tags(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

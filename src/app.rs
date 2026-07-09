@@ -9,12 +9,13 @@ use crate::ui::{BoardsPane, RepliesPane, ThreadsPane};
 
 const SPINNER_FRAMES: [char; 4] = ['|', '/', '-', '\\'];
 
-/// The input mode. Normal mode drives navigation; Command mode collects a
-/// typed `:` command on the bottom row.
+/// The input mode. Normal mode drives navigation; Command and Search modes
+/// collect a typed line on the bottom row, prefixed with `:` or `/`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Mode {
     Normal,
     Command,
+    Search,
 }
 
 pub(crate) struct App {
@@ -23,7 +24,10 @@ pub(crate) struct App {
     pub(crate) thread: RepliesPane,
     focus: SelectedField,
     mode: Mode,
-    command_line: String,
+    // Shared bottom-row buffer for command and search input.
+    line: String,
+    // Last submitted search query, replayed by n/N.
+    search_query: String,
     thread_list: ThreadList,
     shown_state: ShownState,
     help_bar: HelpBar,
@@ -44,7 +48,8 @@ impl App {
             thread: RepliesPane::new(vec![]),
             focus: SelectedField::BoardList,
             mode: Mode::Normal,
-            command_line: String::new(),
+            line: String::new(),
+            search_query: String::new(),
             thread_list: ThreadList::new(),
             shown_state: ShownState {
                 board_list: false,
@@ -215,9 +220,9 @@ impl App {
                 vec![]
             }
             Action::Escape => {
-                if self.mode == Mode::Command {
+                if matches!(self.mode, Mode::Command | Mode::Search) {
                     self.mode = Mode::Normal;
-                    self.command_line.clear();
+                    self.line.clear();
                 } else if self.help_bar.shown() {
                     self.help_bar.toggle_shown();
                 }
@@ -225,31 +230,55 @@ impl App {
             }
             Action::EnterCommand => {
                 self.mode = Mode::Command;
-                self.command_line.clear();
+                self.line.clear();
                 vec![]
             }
-            Action::CommandChar(c) => {
-                self.command_line.push(c);
+            Action::EnterSearch => {
+                self.mode = Mode::Search;
+                self.line.clear();
                 vec![]
             }
-            Action::CommandBackspace => {
-                self.command_line.pop();
+            Action::LineInput(c) => {
+                if matches!(self.mode, Mode::Command | Mode::Search) {
+                    self.line.push(c);
+                }
                 vec![]
             }
-            Action::CommandSubmit => {
-                let cmd = self.command_line.trim().to_string();
+            Action::LineBackspace => {
+                if matches!(self.mode, Mode::Command | Mode::Search) {
+                    self.line.pop();
+                }
+                vec![]
+            }
+            Action::LineSubmit => {
+                let text = self.line.trim().to_string();
+                let mode = self.mode;
                 self.mode = Mode::Normal;
-                self.command_line.clear();
-                if cmd.is_empty() {
-                    return vec![];
-                }
-                match parse_command(&cmd) {
-                    Some(action) => self.step(action),
-                    None => {
-                        self.status = Some(format!("unknown command: {cmd}"));
-                        vec![]
+                self.line.clear();
+                match mode {
+                    Mode::Command => {
+                        if text.is_empty() {
+                            return vec![];
+                        }
+                        match parse_command(&text) {
+                            Some(action) => self.step(action),
+                            None => {
+                                self.status = Some(format!("unknown command: {text}"));
+                                vec![]
+                            }
+                        }
                     }
+                    Mode::Search => self.run_search(&text),
+                    Mode::Normal => vec![],
                 }
+            }
+            Action::SearchNext => {
+                self.search_step(true);
+                vec![]
+            }
+            Action::SearchPrev => {
+                self.search_step(false);
+                vec![]
             }
             Action::OpenThread => vec![Effect::OpenBrowser(self.thread_url())],
             Action::CopyThread => vec![Effect::CopyToClipboard(self.thread_url())],
@@ -315,8 +344,8 @@ impl App {
         self.mode
     }
 
-    pub(crate) fn command_line(&self) -> &str {
-        &self.command_line
+    pub(crate) fn line(&self) -> &str {
+        &self.line
     }
 
     pub(crate) fn thread_list_page(&self) -> u8 {
@@ -337,6 +366,79 @@ impl App {
             SelectedField::ThreadList => &mut self.threads,
             SelectedField::Thread => &mut self.thread,
         }
+    }
+
+    fn focused_pane_ref(&self) -> &dyn Pane {
+        match self.focus {
+            SelectedField::BoardList => &self.boards,
+            SelectedField::ThreadList => &self.threads,
+            SelectedField::Thread => &self.thread,
+        }
+    }
+
+    /// Indices in the focused pane whose text contains `query`, case-insensitive.
+    ///
+    /// Pure: reads the pane's items, touches nothing else. An empty query has
+    /// no matches.
+    fn search_matches(&self, query: &str) -> Vec<usize> {
+        if query.is_empty() {
+            return vec![];
+        }
+        let needle = query.to_lowercase();
+        let pane = self.focused_pane_ref();
+        (0..pane.len())
+            .filter(|&i| pane.match_text(i).contains(&needle))
+            .collect()
+    }
+
+    /// Run a freshly submitted search: remember the query and jump to the first
+    /// match at or after the current selection, wrapping to the first match.
+    fn run_search(&mut self, query: &str) -> Vec<Effect> {
+        if query.is_empty() {
+            return vec![];
+        }
+        self.search_query = query.to_string();
+        let matches = self.search_matches(query);
+        if matches.is_empty() {
+            self.status = Some(format!("no matches: {query}"));
+            return vec![];
+        }
+        let target = match self.focused_pane_ref().selected() {
+            Some(cur) => matches.iter().copied().find(|&i| i >= cur),
+            None => None,
+        }
+        .unwrap_or(matches[0]);
+        self.focused_pane().select_index(target);
+        vec![]
+    }
+
+    /// Cycle to the next or previous match of the stored query, wrapping around.
+    /// A no-op until a search has been run.
+    fn search_step(&mut self, forward: bool) {
+        if self.search_query.is_empty() {
+            return;
+        }
+        let matches = self.search_matches(&self.search_query);
+        if matches.is_empty() {
+            return;
+        }
+        let current = self.focused_pane_ref().selected();
+        let target = match current {
+            Some(cur) if forward => matches
+                .iter()
+                .copied()
+                .find(|&i| i > cur)
+                .unwrap_or(matches[0]),
+            Some(cur) => matches
+                .iter()
+                .rev()
+                .copied()
+                .find(|&i| i < cur)
+                .unwrap_or(*matches.last().unwrap()),
+            None if forward => matches[0],
+            None => *matches.last().unwrap(),
+        };
+        self.focused_pane().select_index(target);
     }
 
     fn selected_board(&self) -> &Board {
@@ -732,36 +834,48 @@ mod tests {
 
         app.update(Action::EnterCommand);
         assert_eq!(app.mode(), Mode::Command);
-        assert_eq!(app.command_line(), "");
+        assert_eq!(app.line(), "");
 
-        app.update(Action::CommandChar('q'));
-        assert_eq!(app.command_line(), "q");
+        app.update(Action::LineInput('q'));
+        assert_eq!(app.line(), "q");
 
-        let effects = app.update(Action::CommandSubmit);
+        let effects = app.update(Action::LineSubmit);
         assert!(matches!(effects.as_slice(), [Effect::Quit]));
         assert_eq!(app.mode(), Mode::Normal);
-        assert_eq!(app.command_line(), "");
+        assert_eq!(app.line(), "");
     }
 
     #[test]
     fn command_mode_escape_cancels() {
         let mut app = sample_app();
         app.update(Action::EnterCommand);
-        app.update(Action::CommandChar('q'));
+        app.update(Action::LineInput('q'));
 
         app.update(Action::Escape);
         assert_eq!(app.mode(), Mode::Normal);
-        assert_eq!(app.command_line(), "");
+        assert_eq!(app.line(), "");
     }
 
     #[test]
-    fn command_backspace_trims_buffer() {
+    fn search_mode_escape_cancels() {
+        let mut app = sample_app();
+        app.update(Action::EnterSearch);
+        app.update(Action::LineInput('g'));
+        assert_eq!(app.mode(), Mode::Search);
+
+        app.update(Action::Escape);
+        assert_eq!(app.mode(), Mode::Normal);
+        assert_eq!(app.line(), "");
+    }
+
+    #[test]
+    fn line_backspace_trims_buffer() {
         let mut app = sample_app();
         app.update(Action::EnterCommand);
-        app.update(Action::CommandChar('a'));
-        app.update(Action::CommandChar('b'));
-        app.update(Action::CommandBackspace);
-        assert_eq!(app.command_line(), "a");
+        app.update(Action::LineInput('a'));
+        app.update(Action::LineInput('b'));
+        app.update(Action::LineBackspace);
+        assert_eq!(app.line(), "a");
     }
 
     #[test]
@@ -769,12 +883,87 @@ mod tests {
         let mut app = sample_app();
         app.update(Action::EnterCommand);
         for c in "nope".chars() {
-            app.update(Action::CommandChar(c));
+            app.update(Action::LineInput(c));
         }
-        let effects = app.update(Action::CommandSubmit);
+        let effects = app.update(Action::LineSubmit);
         assert!(effects.is_empty());
         assert_eq!(app.status.as_deref(), Some("unknown command: nope"));
         assert_eq!(app.mode(), Mode::Normal);
+    }
+
+    #[test]
+    fn search_matches_finds_case_insensitive_substrings() {
+        let app = sample_app();
+        // Boards are "/g/ Technology" and "/v/ Video Games".
+        assert_eq!(app.search_matches("video"), vec![1]);
+        assert_eq!(app.search_matches("TECH"), vec![0]);
+        // A lone "e" appears in both.
+        assert_eq!(app.search_matches("e"), vec![0, 1]);
+        // An empty query matches nothing.
+        assert!(app.search_matches("").is_empty());
+        assert!(app.search_matches("nowhere").is_empty());
+    }
+
+    #[test]
+    fn search_submit_jumps_to_first_match() {
+        let mut app = sample_app();
+        app.update(Action::EnterSearch);
+        for c in "video".chars() {
+            app.update(Action::LineInput(c));
+        }
+        app.update(Action::LineSubmit);
+
+        assert_eq!(app.mode(), Mode::Normal);
+        assert_eq!(app.line(), "");
+        assert_eq!(app.search_query, "video");
+        assert_eq!(app.boards.state.selected(), Some(1));
+    }
+
+    #[test]
+    fn search_next_and_prev_cycle_and_wrap() {
+        let mut app = sample_app();
+        app.update(Action::EnterSearch);
+        // "e" matches both boards.
+        app.update(Action::LineInput('e'));
+        app.update(Action::LineSubmit);
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        app.update(Action::SearchNext);
+        assert_eq!(app.boards.state.selected(), Some(1));
+
+        // Past the last match, wrap to the first.
+        app.update(Action::SearchNext);
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        // Before the first match, wrap to the last.
+        app.update(Action::SearchPrev);
+        assert_eq!(app.boards.state.selected(), Some(1));
+    }
+
+    #[test]
+    fn search_without_matches_sets_status() {
+        let mut app = sample_app();
+        app.update(Action::Move(1));
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        app.update(Action::EnterSearch);
+        for c in "zzz".chars() {
+            app.update(Action::LineInput(c));
+        }
+        app.update(Action::LineSubmit);
+
+        assert_eq!(app.status.as_deref(), Some("no matches: zzz"));
+        assert_eq!(app.boards.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn search_next_is_noop_before_any_search() {
+        let mut app = sample_app();
+        app.update(Action::Move(1));
+        assert_eq!(app.boards.state.selected(), Some(0));
+
+        app.update(Action::SearchNext);
+        assert_eq!(app.boards.state.selected(), Some(0));
     }
 
     #[test]

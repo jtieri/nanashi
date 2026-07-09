@@ -22,7 +22,7 @@ use crate::client::api::{
 };
 use crate::effect::Effect;
 use crate::event::normalize;
-use crate::input::{command_key, InputEngine, Keymap};
+use crate::input::{line_key, InputEngine, Keymap};
 use crate::model::Board;
 use crate::style::StyleProvider;
 
@@ -114,7 +114,7 @@ async fn run(
                 Some(Ok(CrosstermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
                     match app.mode() {
                         Mode::Normal => engine.on_key(normalize(key), &keymap),
-                        Mode::Command => command_key(key),
+                        Mode::Command | Mode::Search => line_key(key),
                     }
                 }
                 Some(Ok(_)) | Some(Err(_)) => None,

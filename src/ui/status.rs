@@ -7,12 +7,17 @@ use ratatui::Frame;
 use crate::app::{App, Mode};
 use crate::input::{help_entries, HELP_COUNTS_HINT};
 
-/// Render the one-line status bar. In command mode it shows the `:` prompt and
-/// the typed buffer; otherwise a spinner while fetches are in flight, the last
-/// error, or nothing when idle.
+/// Render the one-line status bar. In command or search mode it shows the `:`
+/// or `/` prompt and the typed buffer; otherwise a spinner while fetches are in
+/// flight, the last error, or nothing when idle.
 pub(crate) fn render_status(frame: &mut Frame, app: &App, area: Rect) {
-    if app.mode() == Mode::Command {
-        let text = format!(":{}", app.command_line());
+    let prompt = match app.mode() {
+        Mode::Command => Some(':'),
+        Mode::Search => Some('/'),
+        Mode::Normal => None,
+    };
+    if let Some(prompt) = prompt {
+        let text = format!("{}{}", prompt, app.line());
         frame.render_widget(Paragraph::new(Line::from(text.clone())), area);
 
         // Park the cursor just past the typed text, clamped inside the row.

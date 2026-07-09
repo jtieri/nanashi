@@ -29,6 +29,9 @@ impl Keymap {
             (vec![key('?')], Action::ToggleHelp),
             (vec![esc()], Action::Escape),
             (vec![key(':')], Action::EnterCommand),
+            (vec![key('/')], Action::EnterSearch),
+            (vec![key('n')], Action::SearchNext),
+            (vec![key('N')], Action::SearchPrev),
             (vec![key('o')], Action::OpenThread),
             (vec![key('O')], Action::OpenMedia),
             (vec![key('y')], Action::CopyThread),
@@ -100,21 +103,21 @@ impl InputEngine {
     }
 }
 
-/// Translate a raw key press into a command-mode action.
+/// Translate a raw key press into a bottom-row line-editor action.
 ///
-/// Command mode bypasses the vim engine: printable characters extend the
-/// command line, Backspace trims it, Enter submits, and Esc cancels.
-pub(crate) fn command_key(key: KeyEvent) -> Option<Action> {
+/// Command and search modes both bypass the vim engine: printable characters
+/// extend the line, Backspace trims it, Enter submits, and Esc cancels.
+pub(crate) fn line_key(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char(c)
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
         {
-            Some(Action::CommandChar(c))
+            Some(Action::LineInput(c))
         }
-        KeyCode::Backspace => Some(Action::CommandBackspace),
-        KeyCode::Enter => Some(Action::CommandSubmit),
+        KeyCode::Backspace => Some(Action::LineBackspace),
+        KeyCode::Enter => Some(Action::LineSubmit),
         KeyCode::Esc => Some(Action::Escape),
         _ => None,
     }
@@ -163,6 +166,8 @@ pub(crate) fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("gg / G", "jump to top / bottom"),
         ("Ctrl-d / Ctrl-u", "half page down / up"),
         ("] / [", "next / previous page"),
+        ("/", "search in pane"),
+        ("n / N", "next / previous match"),
         ("r", "reload"),
         ("f", "fullscreen the pane"),
         ("o / O", "open thread / media in browser"),

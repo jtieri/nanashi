@@ -78,4 +78,13 @@ impl Pane for BoardsPane {
     fn height(&self) -> usize {
         self.height
     }
+
+    fn selected(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
+    fn match_text(&self, index: usize) -> String {
+        let board = &self.items[index];
+        format!("/{}/ {}", board.board(), board.title()).to_lowercase()
+    }
 }

@@ -3,7 +3,7 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
-use crate::format::{format_default, format_post_full};
+use crate::format::{format_default, format_post_full, plain_text};
 use crate::model::ThreadPost;
 use crate::style::StyleProvider;
 use crate::ui::component::{content_height, Pane};
@@ -64,5 +64,13 @@ impl Pane for RepliesPane {
 
     fn height(&self) -> usize {
         self.height
+    }
+
+    fn selected(&self) -> Option<usize> {
+        self.state.selected()
+    }
+
+    fn match_text(&self, index: usize) -> String {
+        plain_text(self.items[index].com()).to_lowercase()
     }
 }
