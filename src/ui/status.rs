@@ -8,8 +8,9 @@ use crate::app::{App, Mode};
 use crate::input::{help_entries, HELP_COUNTS_HINT};
 
 /// Render the one-line status bar. In command or search mode it shows the `:`
-/// or `/` prompt and the typed buffer; otherwise a spinner while fetches are in
-/// flight, the last error, or nothing when idle.
+/// or `/` prompt and the typed buffer; otherwise, in priority order, a spinner
+/// while fetches are in flight, the active search indicator, the last error, or
+/// nothing when idle.
 pub(crate) fn render_status(frame: &mut Frame, app: &App, area: Rect) {
     let prompt = match app.mode() {
         Mode::Command => Some(':'),
@@ -29,6 +30,8 @@ pub(crate) fn render_status(frame: &mut Frame, app: &App, area: Rect) {
 
     let line = if app.pending() > 0 {
         Line::from(format!("{} loading", app.spinner_frame()))
+    } else if let Some(indicator) = app.search_indicator() {
+        Line::from(Span::styled(indicator, Style::default().fg(Color::Cyan)))
     } else if let Some(err) = app.status() {
         Line::from(Span::styled(err, Style::default().fg(Color::Red)))
     } else {

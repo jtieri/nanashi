@@ -121,12 +121,14 @@ impl App {
                         self.set_shown_board_list(true);
                         self.set_shown_thread(false);
                         self.focus = SelectedField::BoardList;
+                        self.search_query.clear();
                     }
                     SelectedField::Thread => {
                         self.set_shown_board_list(true);
                         self.set_shown_thread_list(true);
                         self.set_shown_thread(false);
                         self.focus = SelectedField::ThreadList;
+                        self.search_query.clear();
                     }
                 }
                 vec![]
@@ -135,6 +137,7 @@ impl App {
                 SelectedField::BoardList => {
                     self.focus = SelectedField::ThreadList;
                     self.set_shown_thread_list(true);
+                    self.search_query.clear();
 
                     self.thread_list = ThreadList::new();
                     let idx = self.boards.state.selected().unwrap_or(0);
@@ -147,12 +150,21 @@ impl App {
                     vec![Effect::FetchThreads { board, page }]
                 }
                 SelectedField::ThreadList => {
+                    // Cannot open a thread that is not there.
+                    let Some(no) = self
+                        .selected_thread()
+                        .and_then(|thread| thread.posts().first())
+                        .map(|op| op.no() as u64)
+                    else {
+                        return vec![];
+                    };
+                    let board = self.selected_board().board().to_string();
+
                     self.focus = SelectedField::Thread;
                     self.set_shown_thread(true);
                     self.set_shown_board_list(false);
+                    self.search_query.clear();
 
-                    let board = self.selected_board().board().to_string();
-                    let no = self.selected_thread().posts().first().unwrap().no() as u64;
                     vec![Effect::FetchThread { board, no }]
                 }
                 SelectedField::Thread => vec![],
@@ -185,8 +197,14 @@ impl App {
                     vec![Effect::FetchThreads { board, page }]
                 }
                 SelectedField::Thread => {
+                    let Some(no) = self
+                        .selected_thread()
+                        .and_then(|thread| thread.posts().first())
+                        .map(|op| op.no() as u64)
+                    else {
+                        return vec![];
+                    };
                     let board = self.selected_board().board().to_string();
-                    let no = self.selected_thread().posts().first().unwrap().no() as u64;
                     vec![Effect::FetchThread { board, no }]
                 }
                 _ => vec![],
@@ -223,8 +241,12 @@ impl App {
                 if matches!(self.mode, Mode::Command | Mode::Search) {
                     self.mode = Mode::Normal;
                     self.line.clear();
-                } else if self.help_bar.shown() {
-                    self.help_bar.toggle_shown();
+                } else {
+                    // End any active search and close the help overlay.
+                    self.search_query.clear();
+                    if self.help_bar.shown() {
+                        self.help_bar.toggle_shown();
+                    }
                 }
                 vec![]
             }
@@ -280,8 +302,14 @@ impl App {
                 self.search_step(false);
                 vec![]
             }
-            Action::OpenThread => vec![Effect::OpenBrowser(self.thread_url())],
-            Action::CopyThread => vec![Effect::CopyToClipboard(self.thread_url())],
+            Action::OpenThread => match self.thread_url() {
+                Some(url) => vec![Effect::OpenBrowser(url)],
+                None => vec![],
+            },
+            Action::CopyThread => match self.thread_url() {
+                Some(url) => vec![Effect::CopyToClipboard(url)],
+                None => vec![],
+            },
             Action::OpenMedia => match self.media_url_for_focus() {
                 Some(url) => vec![Effect::OpenBrowser(url)],
                 None => vec![],
@@ -301,7 +329,7 @@ impl App {
                 self.status = None;
                 self.threads = ThreadsPane::new(threads);
                 if self.select_threads_on_load {
-                    self.threads.move_selection(1);
+                    self.threads.select_first();
                 }
                 vec![]
             }
@@ -309,7 +337,7 @@ impl App {
                 self.pending = self.pending.saturating_sub(1);
                 self.status = None;
                 self.thread = RepliesPane::new(posts);
-                self.thread.move_selection(1);
+                self.thread.select_first();
                 vec![]
             }
             Action::LoadFailed(message) => {
@@ -400,7 +428,6 @@ impl App {
         self.search_query = query.to_string();
         let matches = self.search_matches(query);
         if matches.is_empty() {
-            self.status = Some(format!("no matches: {query}"));
             return vec![];
         }
         let target = match self.focused_pane_ref().selected() {
@@ -445,29 +472,41 @@ impl App {
         &self.boards.items[self.boards.state.selected().unwrap_or(0)]
     }
 
-    fn selected_thread(&self) -> &Thread {
-        &self.threads.items[self.threads.state.selected().unwrap_or(0)]
+    fn selected_thread(&self) -> Option<&Thread> {
+        self.threads
+            .state
+            .selected()
+            .and_then(|i| self.threads.items.get(i))
     }
 
     pub(crate) fn selected_thread_description(&self) -> String {
-        if let Some(post_i) = self.threads.state.selected() {
-            let thread = &self.threads.items[post_i];
-            let post = thread.posts().first().unwrap();
-            let title = format_html(post.sub());
-            let title = if title.is_empty() {
-                "".to_string()
-            } else {
-                format!("\"{}\" ", title)
-            };
+        let Some(post_i) = self.threads.state.selected() else {
+            return String::new();
+        };
+        let Some(post) = self
+            .threads
+            .items
+            .get(post_i)
+            .and_then(|thread| thread.posts().first())
+        else {
+            return String::new();
+        };
 
-            format!("{} {}replies: {} ", post.no(), title, post.replies())
-        } else {
+        let title = format_html(post.sub());
+        let title = if title.is_empty() {
             "".to_string()
-        }
+        } else {
+            format!("\"{}\" ", title)
+        };
+
+        format!("{} {}replies: {} ", post.no(), title, post.replies())
     }
 
-    fn selected_post(&self) -> &ThreadPost {
-        &self.thread.items[self.thread.state.selected().unwrap()]
+    fn selected_post(&self) -> Option<&ThreadPost> {
+        self.thread
+            .state
+            .selected()
+            .and_then(|i| self.thread.items.get(i))
     }
 
     pub(crate) fn set_shown_board_list(&mut self, shown: bool) {
@@ -514,28 +553,52 @@ impl App {
         self.status.as_deref()
     }
 
-    /// Thread/post URL for the currently focused pane.
-    fn thread_url(&self) -> String {
-        match self.focus {
-            SelectedField::BoardList => self.provider.url_board(self.selected_board().board()),
-            SelectedField::ThreadList => self.provider.url_thread(
-                self.selected_board().board(),
-                self.selected_thread().posts().first().unwrap().no() as u64,
-            ),
-            SelectedField::Thread => self.provider.url_thread_post(
-                self.selected_board().board(),
-                self.selected_thread().posts().first().unwrap().no() as u64,
-                self.selected_post().no() as u64,
-            ),
+    /// A one-line summary of the active search for the status row: the query
+    /// with either the current position among matches, the match count, or a
+    /// no-match note. `None` when no search is active.
+    pub(crate) fn search_indicator(&self) -> Option<String> {
+        if self.search_query.is_empty() {
+            return None;
         }
+        let matches = self.search_matches(&self.search_query);
+        let total = matches.len();
+        if total == 0 {
+            return Some(format!("/{}  no matches", self.search_query));
+        }
+        let pos = self
+            .focused_pane_ref()
+            .selected()
+            .and_then(|cur| matches.iter().position(|&i| i == cur));
+        match pos {
+            Some(p) => Some(format!("/{}  {}/{}", self.search_query, p + 1, total)),
+            None => Some(format!("/{}  {} matches", self.search_query, total)),
+        }
+    }
+
+    /// Thread/post URL for the currently focused pane, if a target exists.
+    fn thread_url(&self) -> Option<String> {
+        let url = match self.focus {
+            SelectedField::BoardList => self.provider.url_board(self.selected_board().board()),
+            SelectedField::ThreadList => {
+                let no = self.selected_thread()?.posts().first()?.no() as u64;
+                self.provider.url_thread(self.selected_board().board(), no)
+            }
+            SelectedField::Thread => {
+                let no = self.selected_thread()?.posts().first()?.no() as u64;
+                let post_no = self.selected_post()?.no() as u64;
+                self.provider
+                    .url_thread_post(self.selected_board().board(), no, post_no)
+            }
+        };
+        Some(url)
     }
 
     /// Media URL for the currently focused pane, if the selected post has media.
     fn media_url_for_focus(&self) -> Option<String> {
         let post = match self.focus {
             SelectedField::BoardList => return None,
-            SelectedField::ThreadList => self.selected_thread().posts().first().unwrap(),
-            SelectedField::Thread => self.selected_post(),
+            SelectedField::ThreadList => self.selected_thread()?.posts().first()?,
+            SelectedField::Thread => self.selected_post()?,
         };
         self.media_url(post)
     }
@@ -941,7 +1004,7 @@ mod tests {
     }
 
     #[test]
-    fn search_without_matches_sets_status() {
+    fn search_without_matches_reports_via_indicator() {
         let mut app = sample_app();
         app.update(Action::Move(1));
         assert_eq!(app.boards.state.selected(), Some(0));
@@ -952,7 +1015,9 @@ mod tests {
         }
         app.update(Action::LineSubmit);
 
-        assert_eq!(app.status.as_deref(), Some("no matches: zzz"));
+        // The indicator conveys the miss; status stays clear.
+        assert!(app.status.is_none());
+        assert_eq!(app.search_indicator().as_deref(), Some("/zzz  no matches"));
         assert_eq!(app.boards.state.selected(), Some(0));
     }
 
@@ -964,6 +1029,102 @@ mod tests {
 
         app.update(Action::SearchNext);
         assert_eq!(app.boards.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn move_on_empty_pane_leaves_none() {
+        let mut app = sample_app();
+        // Entering a board focuses the threads pane before any load, so it is
+        // still empty. Moving must not select an out-of-range row.
+        app.update(Action::Enter);
+        assert_eq!(app.focus, SelectedField::ThreadList);
+
+        app.update(Action::Move(1));
+        assert_eq!(app.threads.state.selected(), None);
+
+        app.update(Action::Move(-3));
+        assert_eq!(app.threads.state.selected(), None);
+    }
+
+    #[test]
+    fn threads_loaded_empty_leaves_selection_none() {
+        let mut app = sample_app();
+        app.update(Action::Enter);
+        app.update(Action::ThreadsLoaded(vec![]));
+        assert_eq!(app.threads.state.selected(), None);
+    }
+
+    #[test]
+    fn move_up_past_top_wraps() {
+        let mut app = sample_app();
+        app.update(Action::SelectIndex(1));
+        assert_eq!(app.boards.state.selected(), Some(1));
+
+        // A count larger than the index must wrap, not underflow.
+        app.update(Action::Move(-5));
+        let sel = app.boards.state.selected().unwrap();
+        assert!(sel < app.boards.items.len());
+    }
+
+    #[test]
+    fn escape_clears_active_search() {
+        let mut app = sample_app();
+        app.update(Action::EnterSearch);
+        app.update(Action::LineInput('e'));
+        app.update(Action::LineSubmit);
+        assert_eq!(app.search_query, "e");
+        let landed = app.boards.state.selected();
+
+        app.update(Action::Escape);
+        assert_eq!(app.search_query, "");
+
+        // With the search ended, n does nothing.
+        app.update(Action::SearchNext);
+        assert_eq!(app.boards.state.selected(), landed);
+    }
+
+    #[test]
+    fn changing_panes_clears_search() {
+        let mut app = sample_app();
+        app.update(Action::EnterSearch);
+        app.update(Action::LineInput('e'));
+        app.update(Action::LineSubmit);
+        assert_eq!(app.search_query, "e");
+
+        // Entering a board scopes away the boards-pane search.
+        app.update(Action::Enter);
+        assert_eq!(app.search_query, "");
+
+        // A search run in the thread list is cleared on the way back.
+        app.update(Action::ThreadsLoaded(sample_threads()));
+        app.search_query = "x".to_string();
+        app.update(Action::Back);
+        assert_eq!(app.search_query, "");
+    }
+
+    #[test]
+    fn search_indicator_formats_positions_and_counts() {
+        let mut app = sample_app();
+        // No active search.
+        assert_eq!(app.search_indicator(), None);
+
+        // "e" matches both boards; the submit lands on the first match.
+        app.update(Action::EnterSearch);
+        app.update(Action::LineInput('e'));
+        app.update(Action::LineSubmit);
+        assert_eq!(app.search_indicator().as_deref(), Some("/e  1/2"));
+
+        app.update(Action::SearchNext);
+        assert_eq!(app.search_indicator().as_deref(), Some("/e  2/2"));
+
+        // A single match with the selection off it reports the count.
+        app.search_query = "video".to_string();
+        app.boards.state.select(Some(0));
+        assert_eq!(app.search_indicator().as_deref(), Some("/video  1 matches"));
+
+        // No matches.
+        app.search_query = "zzz".to_string();
+        assert_eq!(app.search_indicator().as_deref(), Some("/zzz  no matches"));
     }
 
     #[test]
