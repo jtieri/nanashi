@@ -168,6 +168,7 @@ pub(crate) fn help_entries() -> &'static [(&'static str, &'static str)] {
         ("] / [", "next / previous page"),
         ("/", "search in pane"),
         ("n / N", "next / previous match"),
+        (":", "command line"),
         ("r", "reload"),
         ("f", "fullscreen the pane"),
         ("o / O", "open thread / media in browser"),
